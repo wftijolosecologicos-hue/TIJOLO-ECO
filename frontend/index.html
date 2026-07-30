@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#123f35">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="TerraLote">
+  <title>TerraLote — Controle de Produção e Cura</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <section id="loginScreen" class="login-screen">
+    <div class="login-card">
+      <div class="login-brand"><span class="brand-mark">T</span><div><strong>TerraLote</strong><small>Controle de produção e cura</small></div></div>
+      <h1>Acesso ao sistema</h1>
+      <p>Entre com seu usuário e senha para acessar os lotes.</p>
+      <form id="loginForm" class="stack-form">
+        <label>Usuário<input name="username" autocomplete="username" required placeholder="Digite o usuário"></label>
+        <label>Senha<input name="password" type="password" autocomplete="current-password" required placeholder="Digite a senha"></label>
+        <button class="primary wide" type="submit">Entrar</button>
+        <div id="loginMessage" class="form-message" aria-live="polite"></div>
+      </form>
+      <small class="login-help">É necessário estar online no primeiro acesso. Depois, os dados recentes ficam disponíveis offline.</small>
+    </div>
+  </section>
+
+  <div id="appShell" class="app-shell hidden">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand"><span class="brand-mark">T</span><div><strong>TerraLote</strong><small>Controle tecnológico</small></div></div>
+      <nav>
+        <button class="nav active" data-view="dashboard"><span>⌂</span> Visão geral</button>
+        <button class="nav" data-view="lots"><span>▤</span> Lotes</button>
+        <button class="nav" data-view="tasks"><span>✓</span> Pendências <b id="navPendingBadge" class="nav-badge">0</b></button>
+        <button class="nav" data-view="catalog"><span>⌘</span> Catálogos</button>
+      </nav>
+      <div class="sidebar-foot">
+        <button id="accountBtn" class="account-button"><span id="accountInitial">O</span><div><strong id="accountName">Operador</strong><small>Conta e segurança</small></div></button>
+        <div class="connection"><i id="connectionDot"></i><span id="connectionText">Verificando...</span></div>
+      </div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <button id="menuBtn" class="menu-btn" aria-label="Abrir menu">☰</button>
+        <div class="heading"><p>CONTROLE DE PRODUÇÃO E CURA</p><h1 id="pageTitle">Visão geral</h1></div>
+        <button class="primary new-lot-short" id="newLotBtn">＋ Novo lote</button>
+      </header>
+
+      <section id="dashboard" class="view active">
+        <div class="kpi-grid three">
+          <article class="kpi"><span class="kpi-icon">▦</span><div><small>Lotes ativos</small><strong id="kpiActive">0</strong><p>em fabricação ou cura</p></div></article>
+          <article class="kpi warning"><span class="kpi-icon">!</span><div><small>Pendências prioritárias</small><strong id="kpiPending">0</strong><p>atrasadas ou previstas para hoje</p></div></article>
+          <article class="kpi"><span class="kpi-icon">▥</span><div><small>Tijolos catalogados</small><strong id="kpiBricks">0</strong><p>quantidade acumulada</p></div></article>
+        </div>
+
+        <div class="dashboard-grid">
+          <article class="panel dashboard-lots">
+            <div class="panel-head"><div><h2>Andamento dos lotes</h2><p>Toque em um lote para abrir os detalhes</p></div><button class="text-button" data-go="lots">Ver todos</button></div>
+            <div id="lotProgress" class="lot-progress-grid"></div>
+          </article>
+          <article class="panel dashboard-tasks">
+            <div class="panel-head"><div><h2>Prioridades de hoje</h2><p>Organizadas por urgência</p></div><button class="text-button" data-go="tasks">Ver pendências</button></div>
+            <div id="nextTasks" class="task-list compact"></div>
+          </article>
+        </div>
+
+        <div class="dashboard-grid lower">
+          <article class="panel"><div class="panel-head"><div><h2>Produção por tipo de cimento</h2><p>Quantidade de tijolos registrada</p></div></div><div id="mixChart" class="bar-chart"></div></article>
+          <article class="panel"><div class="panel-head"><div><h2>Resumo operacional</h2><p>Situação atual dos lotes</p></div></div><div id="statusSummary" class="status-summary"></div></article>
+        </div>
+      </section>
+
+      <section id="lots" class="view">
+        <article class="panel">
+          <div class="panel-head responsive"><div><h2>Catálogo de lotes</h2><p>Abra, imprima ou exclua um registro</p></div><input id="lotSearch" class="search" placeholder="Buscar lote, responsável ou material"></div>
+          <div id="lotsCards" class="mobile-card-list"></div>
+          <div class="table-wrap desktop-table"><table><thead><tr><th>Lote</th><th>Fabricação</th><th>Qtd.</th><th>Traço</th><th>Responsável</th><th>Cura</th><th></th></tr></thead><tbody id="lotsTable"></tbody></table></div>
+        </article>
+      </section>
+
+      <section id="tasks" class="view">
+        <div class="task-toolbar">
+          <div><h2>Pendências operacionais</h2><p>Primeiro aparecem ações atrasadas e tarefas de hoje</p></div>
+          <select id="taskFilter"><option value="open">Somente pendentes</option><option value="all">Pendentes e concluídas</option></select>
+        </div>
+        <div id="taskGroups" class="task-groups"></div>
+      </section>
+
+      <section id="catalog" class="view">
+        <div class="catalog-header"><div><h2>Catálogos de produção</h2><p>Cadastre as informações reutilizadas nos lotes</p></div></div>
+        <div class="tabs"><button class="tab active" data-tab="soils">Terras e origens</button><button class="tab" data-tab="plans">Planos de molhação</button></div>
+        <div id="soilsTab" class="tab-panel active">
+          <div class="panel-head responsive"><div><h2>Terras cadastradas</h2><p>Areia e argila serão preenchidas automaticamente no lote</p></div><button class="primary" id="newSoilBtn">＋ Nova terra</button></div>
+          <div id="soilsList" class="catalog-grid"></div>
+        </div>
+        <div id="plansTab" class="tab-panel">
+          <div class="panel-head responsive"><div><h2>Planos de molhação</h2><p>Use os predefinidos ou crie uma programação personalizada</p></div><button class="primary" id="newPlanBtn">＋ Plano personalizado</button></div>
+          <div id="plansList" class="catalog-grid"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="lotDialog" class="sheet-dialog">
+    <form id="lotForm">
+      <div class="dialog-head"><div><p>NOVO REGISTRO</p><h2>Cadastrar lote</h2><small>O código será criado automaticamente ao salvar.</small></div><button type="button" class="icon" data-close="lotDialog">×</button></div>
+      <div class="form-grid">
+        <label>Código do lote<input value="Gerado automaticamente" disabled></label>
+        <label>Data e hora de fabricação<input name="manufacturedAt" type="datetime-local" required></label>
+        <label>Quantidade de tijolos<input name="quantity" inputmode="numeric" type="number" min="1" required></label>
+        <label>Nome do responsável<input name="responsible" required placeholder="Nome de quem produziu"></label>
+        <label>Terra / origem<select name="soilId" id="soilSelect" required></select><small id="soilInfo" class="field-hint"></small></label>
+        <label>Terra no traço (kg)<input name="soilKg" inputmode="decimal" type="number" min="0" step="0.01" required></label>
+        <label>Areia adicionada (kg)<input name="sandKg" inputmode="decimal" type="number" min="0" step="0.01" value="0" required></label>
+        <label>Cimento (kg)<input name="cementKg" inputmode="decimal" type="number" min="0" step="0.01" required></label>
+        <label>Tipo de cimento<select name="cementType"><option>CP V-ARI</option><option>CP II-F</option><option>CP II-Z</option><option>CP III</option><option>Outro</option></select></label>
+        <label>Material extra (opcional)<input name="extraName" placeholder="Filito, impermeabilizante..."></label>
+        <label>Quantidade extra<input name="extraQty" inputmode="decimal" type="number" min="0" step="0.01" placeholder="Opcional"></label>
+        <label>Unidade do extra<select name="extraUnit"><option value="kg">kg</option><option value="g">g</option><option value="L">L</option><option value="mL">mL</option><option value="%">%</option></select></label>
+        <label>Coeficiente/teor de umidade (%)<input name="moisturePct" inputmode="decimal" type="number" min="0" step="0.01" placeholder="Opcional"></label>
+        <label>Plano de molhação<select name="wateringPlanId" id="wateringPlanSelect" required></select></label>
+        <label>Cura programada (dias)<select name="cureDays"><option>5</option><option>15</option><option selected>28</option><option>56</option></select></label>
+        <label class="span-2">Observações<textarea name="notes" rows="3" placeholder="Informações adicionais sobre a produção"></textarea></label>
+      </div>
+      <div class="dialog-actions sticky"><button type="button" class="secondary" data-close="lotDialog">Cancelar</button><button class="primary" type="submit">Salvar lote</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="detailDialog" class="sheet-dialog"><div id="detailContent"></div></dialog>
+  <dialog id="createdDialog" class="small-dialog"><div id="createdContent"></div></dialog>
+
+  <dialog id="soilDialog" class="small-dialog">
+    <form id="soilForm"><div class="dialog-head"><div><p>CATÁLOGO</p><h2>Nova terra / origem</h2></div><button type="button" class="icon" data-close="soilDialog">×</button></div>
+      <div class="stack-form"><label>Nome de identificação<input name="name" required placeholder="Ex.: Terra vermelha"></label><label>Origem / jazida<input name="origin" required placeholder="Ex.: Jazida Norte, Irecê"></label><div class="two-fields"><label>Areia presente (%)<input name="sandPct" type="number" min="0" max="100" step="0.1" required></label><label>Argila presente (%)<input name="clayPct" type="number" min="0" max="100" step="0.1" required></label></div><label>Observações<textarea name="notes" rows="3"></textarea></label></div>
+      <div class="dialog-actions"><button type="button" class="secondary" data-close="soilDialog">Cancelar</button><button class="primary" type="submit">Cadastrar terra</button></div></form>
+  </dialog>
+
+  <dialog id="planDialog" class="small-dialog">
+    <form id="planForm"><div class="dialog-head"><div><p>CATÁLOGO</p><h2>Plano personalizado</h2></div><button type="button" class="icon" data-close="planDialog">×</button></div>
+      <div class="stack-form"><label>Nome do plano<input name="name" required placeholder="Ex.: Molhação especial"></label><label>Quantidade de dias<input name="days" type="number" min="1" max="60" required></label><label>Horários de cada dia<input name="times" required placeholder="Ex.: 07:00, 12:00, 17:00"><small class="field-hint">Separe os horários por vírgula.</small></label><label>Descrição<textarea name="description" rows="3" placeholder="Instruções para o operador"></textarea></label></div>
+      <div class="dialog-actions"><button type="button" class="secondary" data-close="planDialog">Cancelar</button><button class="primary" type="submit">Criar plano</button></div></form>
+  </dialog>
+
+  <dialog id="accountDialog" class="small-dialog">
+    <div class="dialog-head"><div><p>CONTA</p><h2>Segurança</h2></div><button type="button" class="icon" data-close="accountDialog">×</button></div>
+    <div class="account-info"><strong id="accountDialogName"></strong><span id="accountDialogEmail"></span></div>
+    <form id="passwordForm" class="stack-form"><label>Novo usuário de acesso<input name="newUsername" minlength="4" required></label><label>Nova senha<input name="newPassword" type="password" minlength="8" required></label><label>Repetir nova senha<input name="confirmPassword" type="password" minlength="8" required></label><div class="verification-row"><label>Código recebido por e-mail<input name="verificationCode" inputmode="numeric" maxlength="6" required placeholder="000000"></label><button id="sendCodeBtn" class="secondary" type="button">Enviar código</button></div><small class="field-hint">O código será enviado somente para wftijolosecologicos@gmail.com.</small><button class="primary" type="submit">Alterar login e senha</button><div id="passwordMessage" class="form-message"></div></form>
+    <button id="logoutBtn" class="danger ghost wide">Sair do sistema</button>
+  </dialog>
+
+  <div id="toast" class="toast" role="status"></div>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
