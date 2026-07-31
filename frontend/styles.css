@@ -115,3 +115,68 @@ dialog{border:0;padding:0;border-radius:20px;box-shadow:0 30px 90px rgba(9,31,25
   .dialog-kpis{grid-template-columns:1fr 1fr}.dialog-kpis>div:last-child{grid-column:span 2}.dialog-chart{height:285px;padding:5px}.dialog-status-overview{grid-template-columns:1fr;padding:12px}.dialog-status-cards{grid-template-columns:repeat(3,1fr)}.analytics-table>div{grid-template-columns:1fr 1fr 60px;padding:10px;font-size:10px}
 }
 @media(max-width:480px){.executive-kpis{grid-template-columns:1fr}.chart-summary-row{grid-template-columns:1fr 1fr}.chart-summary-row>div:nth-child(2){border-right:0}.chart-summary-row>div:last-child{grid-column:span 2;border-top:1px solid var(--line);padding-top:8px}.dialog-status-cards{grid-template-columns:1fr}.productivity-row{grid-template-columns:1fr 1fr}}
+
+
+/* TerraLote V7 — operação institucional */
+.dashboard-operations{order:-3;margin-bottom:16px;align-items:stretch}
+.dashboard-intro{order:-2;margin:4px 0 14px;padding-top:2px;border-top:1px solid rgba(23,62,53,.08)}
+.dashboard-intro>div:first-child{padding-top:14px}
+.dashboard-lots,.dashboard-tasks{padding:20px;min-height:370px;background:linear-gradient(180deg,#fff 0%,#fbfcfb 100%)}
+.dashboard-lots .panel-head,.dashboard-tasks .panel-head{padding-bottom:13px;border-bottom:1px solid var(--line);margin-bottom:14px}
+.dashboard-lots .panel-head h2,.dashboard-tasks .panel-head h2{font-size:19px}
+.text-button{border:1px solid var(--line);background:#fff;color:var(--forest);border-radius:9px;padding:8px 11px;font-size:11px;font-weight:800;cursor:pointer}
+.text-button:hover{background:#edf4f1}
+
+.lot-progress-grid.professional{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;max-height:440px;overflow:auto;padding:2px 4px 3px 0}
+.traceability-card{position:relative;border:1px solid #dbe4df;border-radius:14px;padding:14px;background:#fff;cursor:pointer;transition:.18s;overflow:hidden}
+.traceability-card:before{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:#d3a448}
+.traceability-card.status-completed:before{background:#2f7d69}.traceability-card.status-overdue:before{background:#bd5546}
+.traceability-card:hover{transform:translateY(-2px);box-shadow:0 12px 28px rgba(23,62,53,.09);border-color:#c9d7d1}
+.traceability-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.traceability-top>div{display:grid;gap:3px}.traceability-code{font-size:10px;letter-spacing:.1em;color:#6f8179;font-weight:900}.traceability-top strong{font-size:14px}
+.traceability-progress-head{display:flex;justify-content:space-between;margin:15px 0 6px;font-size:10px;color:var(--muted)}.traceability-progress-head b{font-size:12px;color:var(--ink)}
+.traceability-progress{height:7px;background:#e8eeeb;border-radius:99px;overflow:hidden}.traceability-progress i{display:block;height:100%;background:linear-gradient(90deg,#275f53,#69a18d);border-radius:99px}
+.traceability-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:12px}.traceability-metrics>div{background:#f4f7f5;border-radius:9px;padding:8px}.traceability-metrics small,.traceability-metrics strong{display:block}.traceability-metrics small{font-size:8px;text-transform:uppercase;letter-spacing:.06em;color:#7b8b85}.traceability-metrics strong{font-size:11px;margin-top:3px}
+
+.task-list.compact{display:grid;gap:8px;max-height:440px;overflow:auto;padding-right:3px}
+.priority-card{position:relative;display:grid;grid-template-columns:3px 55px 1fr 34px;gap:10px;align-items:center;border:1px solid #dce4e0;background:#fff;border-radius:13px;padding:10px;overflow:hidden}
+.priority-marker{height:100%;border-radius:99px;background:#d3a448}.priority-card.overdue .priority-marker{background:#bd5546}
+.priority-time{display:grid;text-align:center;border-right:1px solid var(--line);padding-right:9px}.priority-time strong{font-size:15px}.priority-time span{font-size:9px;color:var(--muted);text-transform:uppercase}
+.priority-content{display:grid;gap:2px}.priority-content>span{font-size:8px;text-transform:uppercase;letter-spacing:.08em;font-weight:900;color:#9a6c26}.priority-card.overdue .priority-content>span{color:#a84639}.priority-content strong{font-size:13px}.priority-content small{font-size:9px;color:var(--muted)}
+.priority-card button{width:31px;height:31px;border:0;border-radius:9px;background:#e6f2ed;color:#1f6e57;font-size:15px;font-weight:900;cursor:pointer}.priority-card button:hover{background:#d6ebe2}
+.priority-empty{display:grid;place-items:center;text-align:center;padding:45px 15px;color:var(--muted)}.priority-empty span{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;background:#e4f3ed;color:#237259;font-weight:900;margin-bottom:9px}.priority-empty strong{color:var(--ink);font-size:13px}.priority-empty small{font-size:10px;margin-top:4px}
+
+/* Aba Pendências */
+.tasks-hero{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;margin-bottom:14px}
+.tasks-hero h2{font-size:25px;margin:2px 0 5px;letter-spacing:-.025em}.tasks-hero>div>p:last-child{font-size:12px;color:var(--muted)}
+.tasks-hero-badge{min-width:104px;border:1px solid #dbe4df;background:#fff;border-radius:14px;padding:12px 15px;text-align:center;box-shadow:0 7px 20px rgba(23,62,53,.05)}.tasks-hero-badge span,.tasks-hero-badge small{display:block}.tasks-hero-badge span{font-size:27px;font-weight:900;color:var(--forest)}.tasks-hero-badge small{font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.tasks-summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:11px;margin-bottom:13px}
+.task-summary{position:relative;display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:15px;overflow:hidden;box-shadow:0 7px 20px rgba(23,62,53,.045)}
+.task-summary:before{content:"";position:absolute;left:0;top:13px;bottom:13px;width:3px;border-radius:0 4px 4px 0}.task-summary.critical:before{background:#bd5546}.task-summary.today:before{background:#d3a448}.task-summary.upcoming:before{background:#648f80}.task-summary.completed:before{background:#2f7d69}
+.summary-icon{width:35px;height:35px;border-radius:10px;background:#f1f5f3;display:grid;place-items:center;color:var(--forest);font-weight:900}.task-summary div:last-child small,.task-summary div:last-child strong,.task-summary div:last-child span{display:block}.task-summary small{font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}.task-summary strong{font-size:23px;margin:2px 0}.task-summary span{font-size:9px;color:var(--muted)}
+.tasks-panel{padding:0;overflow:hidden}
+.tasks-toolbar-institutional{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:15px 17px;background:#f7f9f8;border-bottom:1px solid var(--line)}
+.task-sort-hint{font-size:9px;color:var(--muted);display:flex;align-items:center;gap:6px}.priority-dot{width:7px;height:7px;border-radius:50%;display:inline-block}.priority-dot.overdue{background:#bd5546}.priority-dot.today{background:#d3a448}
+.task-groups.institutional{padding:16px;display:grid;gap:18px;max-height:none}
+.task-day-institutional{display:grid;gap:8px}.task-day-heading{display:flex;justify-content:space-between;align-items:center;padding:0 2px}.task-day-heading>div{display:flex;align-items:center;gap:8px}.task-day-heading>div>span{width:8px;height:8px;border-radius:50%;background:#658f80}.task-day-heading h3{text-transform:capitalize;font-size:13px;margin:0}.task-day-heading small{font-size:9px;color:var(--muted)}
+.task-day-list{display:grid;gap:8px}
+.task-card-institutional{position:relative;display:grid;grid-template-columns:4px 68px minmax(0,1fr) auto;gap:13px;align-items:center;background:#fff;border:1px solid #dce4e0;border-radius:14px;padding:11px 13px;overflow:hidden;transition:.16s}
+.task-card-institutional:hover{border-color:#c8d7d1;box-shadow:0 7px 20px rgba(23,62,53,.055)}
+.task-state-rail{align-self:stretch;border-radius:99px;background:#688f82}.task-card-institutional.overdue .task-state-rail{background:#bd5546}.task-card-institutional.today .task-state-rail{background:#d3a448}.task-card-institutional.done .task-state-rail{background:#2f7d69}
+.task-date-block{display:grid;text-align:center;border-right:1px solid var(--line);padding-right:12px}.task-date-block strong{font-size:20px;line-height:1}.task-date-block span{font-size:9px;text-transform:uppercase;color:var(--muted);margin:2px 0}.task-date-block small{font-size:9px;color:#53665f;font-weight:800}
+.task-main-info{display:grid;gap:3px}.task-title-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.task-title-row strong{font-size:13px}.task-main-info p{font-size:10px;color:#53665f}.task-main-info>small{font-size:9px;color:var(--muted)}
+.task-status-label{font-size:8px;text-transform:uppercase;letter-spacing:.07em;font-weight:900;border-radius:99px;padding:4px 6px;background:#eef3f1;color:#5d746b}.task-status-label.overdue{background:#f7e5e1;color:#a33f33}.task-status-label.today{background:#fff0d6;color:#8b5d17}.task-status-label.done{background:#e1f1eb;color:#226b54}
+.task-confirm-button{border:0;border-radius:10px;background:var(--forest);color:#fff;padding:9px 12px;font-size:10px;font-weight:900;cursor:pointer;white-space:nowrap}.task-confirm-button:hover{background:#215347}
+.task-completed-check{font-size:10px;font-weight:900;color:#267259;background:#e3f2ec;border-radius:9px;padding:8px 10px;white-space:nowrap}
+.task-empty-institutional{display:grid;place-items:center;text-align:center;padding:55px 20px}.task-empty-institutional>div{width:43px;height:43px;border-radius:50%;background:#e5f2ed;color:#267259;display:grid;place-items:center;font-size:19px;font-weight:900;margin-bottom:9px}.task-empty-institutional strong{font-size:14px}.task-empty-institutional span{font-size:10px;color:var(--muted);margin-top:4px}
+
+@media(max-width:1000px){.tasks-summary-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:760px){
+  .dashboard-operations{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;padding-bottom:5px}.dashboard-operations>article{min-width:88vw;scroll-snap-align:start}
+  .dashboard-intro{margin-top:7px}.dashboard-intro>div:first-child{padding-top:12px}
+  .lot-progress-grid.professional{display:flex;grid-template-columns:none;overflow-x:auto;max-height:none}.traceability-card{min-width:275px}
+  .tasks-hero{align-items:flex-start}.tasks-hero-badge{min-width:86px;padding:10px}.tasks-summary-grid{grid-template-columns:repeat(2,1fr)}
+  .tasks-toolbar-institutional{align-items:stretch;flex-direction:column}.task-sort-hint{justify-content:center}
+  .task-card-institutional{grid-template-columns:4px 55px 1fr}.task-action-area{grid-column:2/4}.task-confirm-button,.task-completed-check{display:block;width:100%;text-align:center}.task-date-block{padding-right:8px}.task-title-row{align-items:flex-start;flex-direction:column;gap:4px}
+}
+@media(max-width:480px){.tasks-summary-grid{grid-template-columns:1fr 1fr}.task-summary{padding:12px;gap:9px}.summary-icon{width:31px;height:31px}.task-summary strong{font-size:20px}.tasks-hero h2{font-size:21px}}
