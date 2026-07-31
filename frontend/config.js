@@ -1,5 +1,5 @@
 window.TERRALOTE_CONFIG = Object.freeze({
-  API_URL: 'https://script.google.com/macros/s/AKfycbwkvE8KbJB8sabmG08wqzEGqVnSMyWbYi2PBz799vS6Q5HRdhDHM6BBgx9_xv4U6HRbJw/exec',
+  API_URL: 'https://script.google.com/macros/s/AKfycbyyWUk38PxBi7ZjGk4xjTfMR_9oo7uCo8H13IOajHJuF_BasL-1sK6meBw1qfyDvo_MZw/exec',
   APP_NAME: 'TerraLote',
   CACHE_VERSION: '2.0.0'
 });
