@@ -1,4 +1,4 @@
-window.TERRALOTE_FRONTEND_VERSION='2.0.6';
+window.TERRALOTE_FRONTEND_VERSION='3.0.0';
 'use strict';
 
 const CONFIG = window.TERRALOTE_CONFIG;
@@ -12,7 +12,7 @@ const APP = {
   token: localStorage.getItem(STORE.token) || '',
   user: JSON.parse(localStorage.getItem(STORE.user) || 'null'),
   lots: [], soils: [], plans: [], tasks: [],
-  taskFilter: 'open', lastCreatedId: null, loadingCount: 0
+  taskFilter: 'open', lastCreatedId: null, loadingCount: 0, dashboardPeriod: 30
 };
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -212,145 +212,172 @@ async function changePassword(e){
 }
 
 
-function productionSeries(){
+
+function dashboardVisibleLots(){
+  const days=Number(APP.dashboardPeriod||30);
+  const cutoff=new Date(Date.now()-days*86400000);
+  const filtered=APP.lots.filter(l=>!l.deletedAt&&new Date(l.manufacturedAt)>=cutoff);
+  return filtered.length?filtered:APP.lots.filter(l=>!l.deletedAt);
+}
+function productionSeries(lots=dashboardVisibleLots()){
   const groups={};
-  APP.lots.filter(l=>!l.deletedAt).forEach(l=>{
-    const d=new Date(l.manufacturedAt);
-    if(Number.isNaN(d.getTime()))return;
+  lots.forEach(l=>{
+    const d=new Date(l.manufacturedAt);if(Number.isNaN(d.getTime()))return;
+    const key=d.toISOString().slice(0,10);
+    groups[key]=(groups[key]||0)+num(l.quantity);
+  });
+  return Object.entries(groups).sort(([a],[b])=>a.localeCompare(b));
+}
+function monthSeries(lots=APP.lots.filter(l=>!l.deletedAt)){
+  const groups={};
+  lots.forEach(l=>{
+    const d=new Date(l.manufacturedAt);if(Number.isNaN(d.getTime()))return;
     const key=d.toISOString().slice(0,7);
     groups[key]=(groups[key]||0)+num(l.quantity);
   });
-  return Object.entries(groups).sort(([a],[b])=>a.localeCompare(b)).slice(-6);
+  return Object.entries(groups).sort(([a],[b])=>a.localeCompare(b)).slice(-12);
 }
-
+function shortDateLabel(iso){
+  const d=new Date(iso+'T12:00:00');return new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'short'}).format(d).replace('.','');
+}
+function svgAreaChart(series,width=760,height=250){
+  if(!series.length)return '<div class="chart-empty">Ainda não há produção registrada neste período.</div>';
+  const values=series.map(x=>x[1]),max=Math.max(...values,1),min=0;
+  const pad={l:54,r:20,t:18,b:40},iw=width-pad.l-pad.r,ih=height-pad.t-pad.b;
+  const points=series.map((x,i)=>{
+    const px=pad.l+(series.length===1?iw/2:i*iw/(series.length-1));
+    const py=pad.t+ih-(x[1]-min)/(max-min||1)*ih;
+    return [px,py];
+  });
+  const line=points.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
+  const area=`M ${points[0][0]} ${pad.t+ih} `+points.map(p=>`L ${p[0]} ${p[1]}`).join(' ')+` L ${points[points.length-1][0]} ${pad.t+ih} Z`;
+  const grid=[0,.25,.5,.75,1].map(f=>{
+    const y=pad.t+ih-f*ih,v=Math.round(max*f);
+    return `<line x1="${pad.l}" y1="${y}" x2="${width-pad.r}" y2="${y}" class="chart-grid-line"/><text x="${pad.l-10}" y="${y+4}" text-anchor="end" class="chart-axis-text">${formatQty(v)}</text>`;
+  }).join('');
+  const step=Math.max(1,Math.ceil(series.length/6));
+  const labels=series.map((x,i)=>i%step===0||i===series.length-1?`<text x="${points[i][0]}" y="${height-12}" text-anchor="middle" class="chart-axis-text">${shortDateLabel(x[0])}</text>`:'').join('');
+  const dots=points.map((p,i)=>`<circle cx="${p[0]}" cy="${p[1]}" r="4" class="chart-dot"><title>${shortDateLabel(series[i][0])}: ${formatQty(series[i][1])} tijolos</title></circle>`).join('');
+  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Gráfico de produção">
+    <defs><linearGradient id="productionAreaGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#2f7d69" stop-opacity=".32"/><stop offset="100%" stop-color="#2f7d69" stop-opacity=".02"/></linearGradient></defs>
+    ${grid}<path d="${area}" fill="url(#productionAreaGradient)"/><path d="${line}" class="chart-main-line"/>${dots}${labels}
+  </svg>`;
+}
+function svgDonut(items,total,size=210){
+  const radius=72,circ=2*Math.PI*radius,center=size/2;
+  let offset=0;
+  const arcs=items.map(item=>{
+    const value=Math.max(0,item.value),len=total?value/total*circ:0;
+    const circle=`<circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="${item.color}" stroke-width="18" stroke-dasharray="${len} ${circ-len}" stroke-dashoffset="${-offset}" stroke-linecap="round"/>`;
+    offset+=len;return circle;
+  }).join('');
+  return `<svg viewBox="0 0 ${size} ${size}" class="donut-svg">${arcs}<text x="${center}" y="${center-2}" text-anchor="middle" class="donut-total">${total}</text><text x="${center}" y="${center+22}" text-anchor="middle" class="donut-label">lotes</text></svg>`;
+}
+function svgGauge(value){
+  const pct=Math.max(0,Math.min(100,Math.round(value))),r=74,circ=Math.PI*r;
+  const filled=circ*pct/100;
+  return `<svg viewBox="0 0 210 125" class="gauge-svg">
+    <path d="M 31 103 A 74 74 0 0 1 179 103" pathLength="${circ}" class="gauge-track"/>
+    <path d="M 31 103 A 74 74 0 0 1 179 103" pathLength="${circ}" class="gauge-value" stroke-dasharray="${filled} ${circ-filled}"/>
+    <text x="105" y="82" text-anchor="middle" class="gauge-number">${pct}%</text>
+    <text x="105" y="105" text-anchor="middle" class="gauge-caption">progresso médio</text>
+  </svg>`;
+}
 function taskItemsHtml(tasks){
   return tasks.map(t=>{
     const done=String(t.status).toUpperCase()==='DONE';
     const overdue=!done&&new Date(t.scheduledAt)<new Date();
-    return `<div class="task ${done?'done':overdue?'overdue':'due'}">
-      <div class="task-info">
-        <strong>${done?'Concluída':'Molhação'} — ${esc(t.lotCode)}</strong>
-        <small>${dateBR(t.scheduledAt)} · ${esc(t.responsible||'')}</small>
-      </div>
-      ${done?'<span class="done-mark">✓</span>':`<button data-confirm-task="${esc(t.id)}">Confirmar</button>`}
-    </div>`;
+    return `<div class="task ${done?'done':overdue?'overdue':'due'}"><div class="task-info"><strong>${done?'Concluída':'Molhação'} — ${esc(t.lotCode)}</strong><small>${dateBR(t.scheduledAt)} · ${esc(t.responsible||'')}</small></div>${done?'<span class="done-mark">✓</span>':`<button data-confirm-task="${esc(t.id)}">Confirmar</button>`}</div>`;
   }).join('')||'<div class="empty">Nenhum registro nesta categoria.</div>';
 }
-
 function renderDashboard(){
-  const visible=APP.lots.filter(l=>!l.deletedAt);
+  const visible=APP.lots.filter(l=>!l.deletedAt), periodLots=dashboardVisibleLots();
   const active=visible.filter(l=>lotStatus(l)!=='COMPLETED').length;
   const priority=APP.tasks.filter(t=>!t.deletedAt&&String(t.status).toUpperCase()!=='DONE'&&new Date(t.scheduledAt)<=new Date(Date.now()+86400000)).length;
-  $('#kpiActive').textContent=active;
-  $('#kpiPending').textContent=priority;
-  $('#kpiBricks').textContent=visible.reduce((s,l)=>s+num(l.quantity),0).toLocaleString('pt-BR');
+  const completed=visible.filter(l=>lotStatus(l)==='COMPLETED').length;
+  const completionRate=visible.length?Math.round(completed/visible.length*100):0;
+  const totalQty=visible.reduce((s,l)=>s+num(l.quantity),0);
+  $('#kpiActive').textContent=active;$('#kpiPending').textContent=priority;$('#kpiBricks').textContent=formatQty(totalQty);$('#kpiCompletion').textContent=completionRate+'%';
   $('#navPendingBadge').textContent=APP.tasks.filter(t=>!t.deletedAt&&String(t.status).toUpperCase()!=='DONE').length;
 
-  $('#lotProgress').innerHTML=visible.slice(0,8).map(l=>`
-    <article class="lot-progress-card status-${lotStatus(l).toLowerCase()}" data-lot="${esc(l.id)}">
-      <div class="lot-card-head">
-        <div><strong>${esc(l.lotCode)}</strong><small>${esc(l.responsible)}</small></div>
-        <span class="badge ${lotStatus(l).toLowerCase()}">${lotStatusLabel(l)}</span>
-      </div>
-      <div class="progress-meta"><span>Andamento geral</span><b>${lotOverallProgress(l)}%</b></div>
-      <div class="progress-track"><i style="width:${lotOverallProgress(l)}%"></i></div>
-      <div class="lot-card-foot"><span>${dayDiff(l.manufacturedAt)} de ${l.cureDays} dias</span><span>${pendingLotTasks(l).length} pendência(s)</span></div>
-    </article>`).join('')||'<div class="empty">Nenhum lote cadastrado.</div>';
+  const series=productionSeries(periodLots), periodTotal=periodLots.reduce((s,l)=>s+num(l.quantity),0);
+  const averageLot=periodLots.length?periodTotal/periodLots.length:0, peak=Math.max(0,...periodLots.map(l=>num(l.quantity)));
+  $('#productionPeriodTotal').textContent=formatQty(periodTotal);$('#productionLotAverage').textContent=formatQty(averageLot);$('#productionPeak').textContent=formatQty(peak);
+  $('#productionChart').innerHTML=svgAreaChart(series);
 
-  const urgent=APP.tasks.filter(t=>!t.deletedAt&&String(t.status).toUpperCase()!=='DONE')
-    .sort((a,b)=>new Date(a.scheduledAt)-new Date(b.scheduledAt)).slice(0,5);
+  const overdue=visible.filter(l=>lotStatus(l)==='OVERDUE').length,curing=visible.length-completed-overdue;
+  const statusItems=[
+    {label:'Concluídos',value:completed,color:'#2f7d69'},
+    {label:'Em andamento',value:curing,color:'#d3a448'},
+    {label:'Com pendência',value:overdue,color:'#bd5546'}
+  ];
+  $('#statusChart').innerHTML=`<div class="status-donut-layout">${svgDonut(statusItems,visible.length)}<div class="status-legend">${statusItems.map(x=>`<div><i style="background:${x.color}"></i><span>${x.label}</span><strong>${x.value}</strong></div>`).join('')}</div></div>`;
+
+  const progressAvg=visible.length?visible.reduce((s,l)=>s+lotOverallProgress(l),0)/visible.length:0;
+  $('#completionGauge').innerHTML=`${svgGauge(progressAvg)}<div class="gauge-footer"><span><i class="dot-success"></i>${completed} concluído(s)</span><span><i class="dot-warning"></i>${active} em curso</span></div>`;
+
+  const cements={};visible.forEach(l=>cements[l.cementType||'Não informado']=(cements[l.cementType||'Não informado']||0)+num(l.quantity));
+  const cementRows=Object.entries(cements).sort((a,b)=>b[1]-a[1]),maxCement=Math.max(1,...cementRows.map(x=>x[1]));
+  $('#mixChart').innerHTML=cementRows.slice(0,5).map(([name,value])=>`<div class="hbar-row"><div class="hbar-label"><span>${esc(name)}</span><strong>${formatQty(value)}</strong></div><div class="hbar-track"><i style="width:${value/maxCement*100}%"></i></div><small>${totalQty?Math.round(value/totalQty*100):0}% do total</small></div>`).join('')||'<div class="chart-empty">Sem dados de cimento.</div>';
+
+  const dates=visible.map(l=>new Date(l.manufacturedAt).getTime()).filter(Number.isFinite),days=dates.length?Math.max(1,(Math.max(...dates)-Math.min(...dates))/86400000+1):1;
+  const daily=totalQty/days,weekly=daily*7;
+  const pendingTotal=APP.tasks.filter(t=>!t.deletedAt&&String(t.status).toUpperCase()!=='DONE').length;
+  $('#averageProduction').innerHTML=`
+    <div class="productivity-main"><small>Média diária</small><strong>${formatQty(daily)}</strong><span>tijolos por dia</span></div>
+    <div class="productivity-row"><div><small>Média semanal</small><strong>${formatQty(weekly)}</strong></div><div><small>Lotes no período</small><strong>${periodLots.length}</strong></div></div>
+    <div class="productivity-note"><span>${pendingTotal}</span> ação(ões) ainda aguardam confirmação</div>`;
+
+  $('#lotProgress').innerHTML=visible.slice(0,6).map(l=>`<article class="lot-progress-card status-${lotStatus(l).toLowerCase()}" data-lot="${esc(l.id)}"><div class="lot-card-head"><div><strong>${esc(l.lotCode)}</strong><small>${esc(l.responsible)}</small></div><span class="badge ${lotStatus(l).toLowerCase()}">${lotStatusLabel(l)}</span></div><div class="progress-meta"><span>Andamento geral</span><b>${lotOverallProgress(l)}%</b></div><div class="progress-track"><i style="width:${lotOverallProgress(l)}%"></i></div><div class="lot-card-foot"><span>${dayDiff(l.manufacturedAt)} de ${l.cureDays} dias</span><span>${pendingLotTasks(l).length} pendência(s)</span></div></article>`).join('')||'<div class="empty">Nenhum lote cadastrado.</div>';
+
+  const urgent=APP.tasks.filter(t=>!t.deletedAt&&String(t.status).toUpperCase()!=='DONE').sort((a,b)=>new Date(a.scheduledAt)-new Date(b.scheduledAt)).slice(0,5);
   $('#nextTasks').innerHTML=taskItemsHtml(urgent);
-
-  const cements={};
-  visible.forEach(l=>cements[l.cementType]=(cements[l.cementType]||0)+num(l.quantity));
-  const max=Math.max(1,...Object.values(cements));
-  $('#mixChart').innerHTML=Object.entries(cements).map(([k,v])=>`
-    <div class="bar-group"><span>${formatQty(v)}</span><div class="bar" style="height:${Math.max(12,v/max*110)}px"></div><small>${esc(k)}</small></div>`
-  ).join('')||'<div class="empty">Sem dados.</div>';
-
-  const series=productionSeries();
-  const maxProd=Math.max(1,...series.map(x=>x[1]));
-  $('#productionChart').innerHTML=`<div class="spark-bars">${series.map(([m,v])=>`
-    <div><i style="height:${Math.max(8,v/maxProd*100)}%"></i><small>${m.slice(5)}/${m.slice(2,4)}</small></div>`
-  ).join('')}</div><strong>${formatQty(series.reduce((s,x)=>s+x[1],0))} tijolos</strong>`;
-
-  const completed=visible.filter(l=>lotStatus(l)==='COMPLETED').length;
-  const overdue=visible.filter(l=>lotStatus(l)==='OVERDUE').length;
-  const curing=visible.length-completed-overdue;
-  const total=Math.max(1,visible.length), a=completed/total*360, b=(completed+curing)/total*360;
-  $('#statusChart').innerHTML=`<div class="mini-donut" style="background:conic-gradient(#28836a 0 ${a}deg,#d7a343 ${a}deg ${b}deg,#c45243 ${b}deg 360deg)"><span>${visible.length}</span></div>
-    <div class="mini-legend"><span><i class="green"></i>${completed} concluído(s)</span><span><i class="amber"></i>${curing} andamento</span><span><i class="red"></i>${overdue} com pendência</span></div>`;
-
-  const dates=visible.map(l=>new Date(l.manufacturedAt).getTime()).filter(Number.isFinite);
-  const days=dates.length?Math.max(1,(Math.max(...dates)-Math.min(...dates))/86400000+1):1;
-  const totalQty=visible.reduce((s,l)=>s+num(l.quantity),0);
-  $('#averageProduction').innerHTML=`<div><small>Média diária</small><strong>${formatQty(totalQty/days)}</strong><span>tijolos/dia</span></div>
-    <div><small>Média semanal</small><strong>${formatQty(totalQty/days*7)}</strong><span>tijolos/semana</span></div>`;
 }
-
 function renderTasks(){
   const all=APP.tasks.filter(t=>!t.deletedAt).sort((a,b)=>new Date(a.scheduledAt)-new Date(b.scheduledAt));
-  const filtered=APP.taskFilter==='all'?all:
-    APP.taskFilter==='done'?all.filter(t=>String(t.status).toUpperCase()==='DONE'):
-    all.filter(t=>String(t.status).toUpperCase()!=='DONE');
-  const groups={};
-  filtered.forEach(t=>{
-    const key=new Date(t.scheduledAt).toLocaleDateString('pt-BR');
-    (groups[key]??=[]).push(t);
-  });
-  $('#taskGroups').innerHTML=Object.entries(groups).map(([day,items])=>`
-    <section class="task-day">
-      <div class="task-day-head"><h3>${day}</h3><span>${items.length} ação(ões)</span></div>
-      ${taskItemsHtml(items)}
-    </section>`).join('')||'<div class="empty">Nenhuma tarefa encontrada.</div>';
+  const filtered=APP.taskFilter==='all'?all:APP.taskFilter==='done'?all.filter(t=>String(t.status).toUpperCase()==='DONE'):all.filter(t=>String(t.status).toUpperCase()!=='DONE');
+  const groups={};filtered.forEach(t=>{const key=new Date(t.scheduledAt).toLocaleDateString('pt-BR');(groups[key]??=[]).push(t)});
+  $('#taskGroups').innerHTML=Object.entries(groups).map(([day,items])=>`<section class="task-day"><div class="task-day-head"><h3>${day}</h3><span>${items.length} ação(ões)</span></div>${taskItemsHtml(items)}</section>`).join('')||'<div class="empty">Nenhuma tarefa encontrada.</div>';
 }
-
 function renderLots(filter=$('#lotSearch')?.value||''){
-  const q=String(filter).toLowerCase();
-  const rows=APP.lots.filter(l=>!l.deletedAt&&JSON.stringify(l).toLowerCase().includes(q));
-  $('#lotsCards').innerHTML=rows.map(l=>`
-    <article class="lot-mobile-card status-${lotStatus(l).toLowerCase()}" data-lot="${esc(l.id)}">
-      <div><strong>${esc(l.lotCode)}</strong><small>${dateBR(l.manufacturedAt)}</small></div>
-      <span class="badge ${lotStatus(l).toLowerCase()}">${lotStatusLabel(l)}</span>
-      <div class="mobile-progress"><i style="width:${lotOverallProgress(l)}%"></i></div>
-      <p>${formatQty(l.quantity)} tijolos · ${lotOverallProgress(l)}%</p>
-    </article>`).join('')||'<div class="empty">Nenhum lote encontrado.</div>';
-
-  $('#lotsTable').innerHTML=rows.map(l=>`
-    <tr data-lot="${esc(l.id)}">
-      <td><strong>${esc(l.lotCode)}</strong></td>
-      <td>${dateBR(l.manufacturedAt)}</td>
-      <td>${formatQty(l.quantity)}</td>
-      <td>${formatMix(l)}</td>
-      <td>${esc(l.responsible)}</td>
-      <td><span class="badge ${lotStatus(l).toLowerCase()}">${lotStatusLabel(l)}</span></td>
-      <td><div class="table-progress"><i style="width:${lotOverallProgress(l)}%"></i><b>${lotOverallProgress(l)}%</b></div></td>
-      <td><button class="secondary" data-print="${esc(l.id)}">Imprimir</button></td>
-    </tr>`).join('');
+  const q=String(filter).toLowerCase(),rows=APP.lots.filter(l=>!l.deletedAt&&JSON.stringify(l).toLowerCase().includes(q));
+  $('#lotsCards').innerHTML=rows.map(l=>`<article class="lot-mobile-card status-${lotStatus(l).toLowerCase()}" data-lot="${esc(l.id)}"><div><strong>${esc(l.lotCode)}</strong><small>${dateBR(l.manufacturedAt)}</small></div><span class="badge ${lotStatus(l).toLowerCase()}">${lotStatusLabel(l)}</span><div class="mobile-progress"><i style="width:${lotOverallProgress(l)}%"></i></div><p>${formatQty(l.quantity)} tijolos · ${lotOverallProgress(l)}%</p></article>`).join('')||'<div class="empty">Nenhum lote encontrado.</div>';
+  $('#lotsTable').innerHTML=rows.map(l=>`<tr data-lot="${esc(l.id)}"><td><strong>${esc(l.lotCode)}</strong></td><td>${dateBR(l.manufacturedAt)}</td><td>${formatQty(l.quantity)}</td><td>${formatMix(l)}</td><td>${esc(l.responsible)}</td><td><span class="badge ${lotStatus(l).toLowerCase()}">${lotStatusLabel(l)}</span></td><td><div class="table-progress"><i style="width:${lotOverallProgress(l)}%"></i><b>${lotOverallProgress(l)}%</b></div></td><td><button class="secondary" data-print="${esc(l.id)}">Imprimir</button></td></tr>`).join('');
 }
-
+function analyticsDialogShell(kicker,title,subtitle,body){
+  return `<div class="analytics-dialog-head"><div><p>${kicker}</p><h2>${title}</h2><span>${subtitle}</span></div><button class="icon" data-close="chartDialog">×</button></div><div class="analytics-dialog-body">${body}</div>`;
+}
 function openChartDetail(type){
-  const visible=APP.lots.filter(l=>!l.deletedAt), series=productionSeries();
-  let title='',body='';
+  const visible=APP.lots.filter(l=>!l.deletedAt),periodLots=dashboardVisibleLots();
+  let content='';
   if(type==='production'){
-    title='Produção por mês';
-    body=`<div class="detail-list">${series.map(([m,v])=>`<div><span>${m}</span><strong>${formatQty(v)} tijolos</strong></div>`).join('')}</div>`;
+    const monthly=monthSeries(),total=monthly.reduce((s,x)=>s+x[1],0),best=monthly.reduce((a,b)=>!a||b[1]>a[1]?b:a,null);
+    content=analyticsDialogShell('ANÁLISE DE PRODUÇÃO','Histórico de produção','Volumes agrupados por mês de fabricação.',`
+      <div class="dialog-kpis"><div><small>Total exibido</small><strong>${formatQty(total)}</strong><span>tijolos</span></div><div><small>Melhor mês</small><strong>${best?best[0]:'—'}</strong><span>${best?formatQty(best[1])+' tijolos':'sem dados'}</span></div><div><small>Lotes analisados</small><strong>${visible.length}</strong><span>registros</span></div></div>
+      <div class="dialog-chart">${svgAreaChart(monthly.map(([m,v])=>[m+'-01',v]),900,310)}</div>
+      <div class="analytics-table"><div class="analytics-table-head"><span>Período</span><span>Produção</span><span>Participação</span></div>${monthly.slice().reverse().map(([m,v])=>`<div><span>${m}</span><strong>${formatQty(v)} tijolos</strong><span>${total?Math.round(v/total*100):0}%</span></div>`).join('')}</div>`);
+  }else if(type==='status'){
+    const groups={COMPLETED:[],CURING:[],OVERDUE:[]};visible.forEach(l=>groups[lotStatus(l)].push(l));
+    const items=[{label:'Concluídos',value:groups.COMPLETED.length,color:'#2f7d69'},{label:'Em andamento',value:groups.CURING.length,color:'#d3a448'},{label:'Com pendência',value:groups.OVERDUE.length,color:'#bd5546'}];
+    content=analyticsDialogShell('SITUAÇÃO DOS LOTES','Controle operacional','Status calculado pela cura e pelas molhações.',`
+      <div class="dialog-status-overview">${svgDonut(items,visible.length,240)}<div class="dialog-status-cards">${items.map(i=>`<div><i style="background:${i.color}"></i><span>${i.label}</span><strong>${i.value}</strong></div>`).join('')}</div></div>
+      <div class="analytics-list">${visible.map(l=>`<button type="button" data-lot="${esc(l.id)}"><div><strong>${esc(l.lotCode)}</strong><span>${esc(l.responsible)} · ${formatQty(l.quantity)} tijolos</span></div><div><span class="badge ${lotStatus(l).toLowerCase()}">${lotStatusLabel(l)}</span><b>${lotOverallProgress(l)}%</b></div></button>`).join('')||'<div class="chart-empty">Nenhum lote cadastrado.</div>'}</div>`);
+  }else if(type==='cement'){
+    const groups={};visible.forEach(l=>groups[l.cementType||'Não informado']=(groups[l.cementType||'Não informado']||0)+num(l.quantity));
+    const rows=Object.entries(groups).sort((a,b)=>b[1]-a[1]),total=rows.reduce((s,x)=>s+x[1],0),max=Math.max(1,...rows.map(x=>x[1]));
+    content=analyticsDialogShell('COMPOSIÇÃO DE PRODUÇÃO','Tipos de cimento utilizados','Participação de cada cimento no volume produzido.',`
+      <div class="dialog-horizontal-bars">${rows.map(([name,value])=>`<div class="dialog-hbar"><div><span>${esc(name)}</span><strong>${formatQty(value)} tijolos</strong></div><div class="hbar-track"><i style="width:${value/max*100}%"></i></div><small>${total?Math.round(value/total*100):0}% da produção acumulada</small></div>`).join('')||'<div class="chart-empty">Sem dados de cimento.</div>'}</div>`);
+  }else if(type==='completion'){
+    const avg=visible.length?visible.reduce((s,l)=>s+lotOverallProgress(l),0)/visible.length:0;
+    content=analyticsDialogShell('DESEMPENHO OPERACIONAL','Progresso dos lotes','Indicador combinado de cura e molhações confirmadas.',`
+      <div class="dialog-gauge">${svgGauge(avg)}</div><div class="analytics-list">${visible.sort((a,b)=>lotOverallProgress(b)-lotOverallProgress(a)).map(l=>`<button type="button" data-lot="${esc(l.id)}"><div><strong>${esc(l.lotCode)}</strong><span>${dayDiff(l.manufacturedAt)} de ${l.cureDays} dias · ${pendingLotTasks(l).length} pendência(s)</span></div><div class="dialog-mini-progress"><i style="width:${lotOverallProgress(l)}%"></i></div><b>${lotOverallProgress(l)}%</b></button>`).join('')}</div>`);
+  }else{
+    const total=visible.reduce((s,l)=>s+num(l.quantity),0),dates=visible.map(l=>new Date(l.manufacturedAt).getTime()).filter(Number.isFinite),days=dates.length?Math.max(1,(Math.max(...dates)-Math.min(...dates))/86400000+1):1;
+    content=analyticsDialogShell('PRODUTIVIDADE','Indicadores de produção','Médias calculadas a partir do histórico cadastrado.',`
+      <div class="dialog-kpis"><div><small>Média diária</small><strong>${formatQty(total/days)}</strong><span>tijolos</span></div><div><small>Média semanal</small><strong>${formatQty(total/days*7)}</strong><span>tijolos</span></div><div><small>Média por lote</small><strong>${formatQty(visible.length?total/visible.length:0)}</strong><span>tijolos</span></div></div>
+      <div class="analytics-note"><strong>Como interpretar</strong><p>Esses indicadores consideram as datas de fabricação dos lotes já registrados. A precisão aumenta à medida que o histórico de produção se torna mais completo.</p></div>`);
   }
-  if(type==='status'){
-    title='Situação dos lotes';
-    body=`<div class="detail-list">${visible.map(l=>`<div data-lot="${esc(l.id)}"><span>${esc(l.lotCode)} · ${esc(l.responsible)}</span><strong>${lotStatusLabel(l)} · ${lotOverallProgress(l)}%</strong></div>`).join('')}</div>`;
-  }
-  if(type==='cement'){
-    const g={};visible.forEach(l=>g[l.cementType]=(g[l.cementType]||0)+num(l.quantity));
-    title='Produção por tipo de cimento';
-    body=`<div class="detail-list">${Object.entries(g).map(([k,v])=>`<div><span>${esc(k)}</span><strong>${formatQty(v)} tijolos</strong></div>`).join('')}</div>`;
-  }
-  if(type==='average'){
-    title='Indicadores de produção';
-    body='<p class="helper-box">As médias são calculadas a partir dos lotes registrados. Quanto mais completo o histórico, mais representativo será o indicador.</p>';
-  }
-  $('#chartDetailContent').innerHTML=`<div class="dialog-head"><div><p>ANÁLISE</p><h2>${title}</h2></div><button class="icon" data-close="chartDialog">×</button></div>${body}`;
-  $('#chartDialog').showModal();
+  $('#chartDetailContent').innerHTML=content;$('#chartDialog').showModal();
 }
 
 async function requestForgotCode(){
@@ -462,6 +489,10 @@ function bindEvents(){
 
     const chart=e.target.closest('[data-chart]');
     if(chart){openChartDetail(chart.dataset.chart);return;}
+    const period=e.target.closest('[data-period]');
+    if(period){APP.dashboardPeriod=Number(period.dataset.period);$$('[data-period]').forEach(x=>x.classList.toggle('active',x===period));renderDashboard();return;}
+    const curePreset=e.target.closest('[data-cure-days]');
+    if(curePreset){const field=$('#cureDaysInput');if(field){field.value=curePreset.dataset.cureDays;field.focus();}return;}
 
     const print=e.target.closest('[data-print]');
     if(print){e.stopPropagation();printLot(print.dataset.print);return;}
