@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="TerraLote">
   <title>TerraLote — Controle de Produção e Cura</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="styles.css?v=300">
+  <link rel="stylesheet" href="styles.css?v=310">
 </head>
 <body>
   <section id="loginScreen" class="login-screen">
@@ -51,13 +51,25 @@
       </header>
 
       <section id="dashboard" class="view active">
+        <div class="dashboard-operations">
+          <article class="panel dashboard-lots">
+            <div class="panel-head"><div><p class="chart-eyebrow">RASTREABILIDADE</p><h2>Andamento dos lotes</h2><p>Selecione um lote para visualizar os detalhes</p></div><button class="text-button" data-go="lots">Ver todos</button></div>
+            <div id="lotProgress" class="lot-progress-grid professional"></div>
+          </article>
+          <article class="panel dashboard-tasks">
+            <div class="panel-head"><div><p class="chart-eyebrow">PRIORIDADES</p><h2>Próximas ações</h2><p>Organizadas pela data e urgência</p></div><button class="text-button" data-go="tasks">Ver pendências</button></div>
+            <div id="nextTasks" class="task-list compact"></div>
+          </article>
+        </div>
+
         <div class="dashboard-intro">
           <div>
             <p class="section-kicker">PAINEL OPERACIONAL</p>
             <h2>Produção e cura em tempo real</h2>
             <p>Acompanhe o volume produzido, a situação dos lotes e as ações que exigem atenção.</p>
           </div>
-          <div class="period-control" aria-label="Período do painel">
+          
+        <div class="period-control" aria-label="Período do painel">
             <button type="button" class="active" data-period="30">30 dias</button>
             <button type="button" data-period="90">90 dias</button>
             <button type="button" data-period="365">12 meses</button>
@@ -136,17 +148,7 @@
           </article>
         </div>
 
-        <div class="dashboard-operations">
-          <article class="panel dashboard-lots">
-            <div class="panel-head"><div><p class="chart-eyebrow">RASTREABILIDADE</p><h2>Andamento dos lotes</h2><p>Selecione um lote para visualizar os detalhes</p></div><button class="text-button" data-go="lots">Ver todos</button></div>
-            <div id="lotProgress" class="lot-progress-grid professional"></div>
-          </article>
-          <article class="panel dashboard-tasks">
-            <div class="panel-head"><div><p class="chart-eyebrow">PRIORIDADES</p><h2>Próximas ações</h2><p>Organizadas pela data e urgência</p></div><button class="text-button" data-go="tasks">Ver pendências</button></div>
-            <div id="nextTasks" class="task-list compact"></div>
-          </article>
-        </div>
-      </section>
+        </section>
 
       <section id="lots" class="view">
         <article class="panel">
@@ -157,11 +159,45 @@
       </section>
 
       <section id="tasks" class="view">
-        <div class="task-toolbar">
-          <div><h2>Pendências operacionais</h2><p>Primeiro aparecem ações atrasadas e tarefas de hoje</p></div>
-          <div class="segmented" id="taskFilter"><button type="button" class="active" data-task-filter="open">Pendentes</button><button type="button" data-task-filter="done">Concluídas</button><button type="button" data-task-filter="all">Todas</button></div>
+        <div class="tasks-hero">
+          <div>
+            <p class="section-kicker">CONTROLE OPERACIONAL</p>
+            <h2>Pendências e confirmações</h2>
+            <p>Acompanhe as ações por prioridade, data e situação.</p>
+          </div>
+          <div class="tasks-hero-badge"><span id="tasksHeroCount">0</span><small>ações abertas</small></div>
         </div>
-        <div id="taskGroups" class="task-groups"></div>
+
+        <div class="tasks-summary-grid">
+          <article class="task-summary critical">
+            <div class="summary-icon">!</div>
+            <div><small>Atrasadas</small><strong id="taskOverdueCount">0</strong><span>exigem ação imediata</span></div>
+          </article>
+          <article class="task-summary today">
+            <div class="summary-icon">◷</div>
+            <div><small>Para hoje</small><strong id="taskTodayCount">0</strong><span>programadas para o dia</span></div>
+          </article>
+          <article class="task-summary upcoming">
+            <div class="summary-icon">→</div>
+            <div><small>Próximas</small><strong id="taskUpcomingCount">0</strong><span>a partir de amanhã</span></div>
+          </article>
+          <article class="task-summary completed">
+            <div class="summary-icon">✓</div>
+            <div><small>Concluídas</small><strong id="taskDoneCount">0</strong><span>histórico confirmado</span></div>
+          </article>
+        </div>
+
+        <article class="panel tasks-panel">
+          <div class="tasks-toolbar-institutional">
+            <div class="segmented" id="taskFilter">
+              <button type="button" class="active" data-task-filter="open">Pendentes</button>
+              <button type="button" data-task-filter="done">Concluídas</button>
+              <button type="button" data-task-filter="all">Todas</button>
+            </div>
+            <div class="task-sort-hint"><span class="priority-dot overdue"></span>Atrasadas primeiro <span class="priority-dot today"></span>Depois hoje</div>
+          </div>
+          <div id="taskGroups" class="task-groups institutional"></div>
+        </article>
       </section>
 
       <section id="catalog" class="view">
@@ -266,7 +302,7 @@
   </div>
 
   <div id="toast" class="toast" role="status"></div>
-  <script src="config.js?v=300"></script>
-  <script src="app.js?v=300"></script>
+  <script src="config.js?v=310"></script>
+  <script src="app.js?v=310"></script>
 </body>
 </html>
