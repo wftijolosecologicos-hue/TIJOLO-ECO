@@ -1,4 +1,4 @@
-window.TERRALOTE_FRONTEND_VERSION='3.0.0';
+window.TERRALOTE_FRONTEND_VERSION='3.1.0';
 'use strict';
 
 const CONFIG = window.TERRALOTE_CONFIG;
@@ -151,9 +151,41 @@ function taskCards(tasks,compact=false){
   return tasks.map(t=>{const group=classifyTask(t),d=new Date(t.scheduledAt),day=d.toLocaleDateString('pt-BR',{day:'2-digit'}),mon=d.toLocaleDateString('pt-BR',{month:'short'}).replace('.','');return `<article class="task-card ${group}"><div class="task-date"><strong>${day}</strong><small>${mon}</small></div><div class="task-info"><strong>Molhação — ${esc(t.lotCode)}</strong><small>${dateBR(t.scheduledAt)} · ${esc(t.responsible||'Sem responsável')}</small></div>${t.status==='DONE'?'<span class="badge ready">Concluída</span>':`<button class="confirm-btn" data-confirm-task="${esc(t.id)}">Confirmar</button>`}</article>`}).join('');
 }
 function renderTasks(){
-  let tasks=APP.tasks.filter(t=>!t.deletedAt);if(APP.taskFilter==='open')tasks=tasks.filter(t=>t.status!=='DONE');tasks.sort((a,b)=>new Date(a.scheduledAt)-new Date(b.scheduledAt));
-  const groups=[['overdue','Atrasadas'],['today','Hoje'],['tomorrow','Amanhã'],['upcoming','Próximos dias'],['completed','Concluídas']];
-  $('#taskGroups').innerHTML=groups.map(([key,title])=>{const list=tasks.filter(t=>classifyTask(t)===key);if(!list.length)return'';return `<section class="task-group ${key}"><div class="task-group-title"><h3>${title}</h3><span>${list.length}</span></div><div class="task-list">${taskCards(list)}</div></section>`}).join('')||'<div class="empty">Nenhuma pendência para exibir.</div>';
+  const all=APP.tasks.filter(t=>!t.deletedAt).sort((a,b)=>new Date(a.scheduledAt)-new Date(b.scheduledAt));
+  const now=new Date();
+  const open=all.filter(t=>String(t.status).toUpperCase()!=='DONE');
+  const overdue=open.filter(t=>new Date(t.scheduledAt)<now&&new Date(t.scheduledAt).toDateString()!==now.toDateString());
+  const today=open.filter(t=>new Date(t.scheduledAt).toDateString()===now.toDateString());
+  const upcoming=open.filter(t=>new Date(t.scheduledAt)>now&&new Date(t.scheduledAt).toDateString()!==now.toDateString());
+  const done=all.filter(t=>String(t.status).toUpperCase()==='DONE');
+
+  $('#tasksHeroCount').textContent=open.length;
+  $('#taskOverdueCount').textContent=overdue.length;
+  $('#taskTodayCount').textContent=today.length;
+  $('#taskUpcomingCount').textContent=upcoming.length;
+  $('#taskDoneCount').textContent=done.length;
+
+  const filtered=APP.taskFilter==='all'?all:APP.taskFilter==='done'?done:open;
+  const groups={};
+  filtered.forEach(t=>{
+    const d=new Date(t.scheduledAt);
+    let key;
+    if(d.toDateString()===now.toDateString())key='Hoje';
+    else{
+      const tomorrow=new Date(now);tomorrow.setDate(now.getDate()+1);
+      if(d.toDateString()===tomorrow.toDateString())key='Amanhã';
+      else key=d.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long'});
+    }
+    (groups[key]??=[]).push(t);
+  });
+
+  $('#taskGroups').innerHTML=Object.entries(groups).map(([day,items])=>{
+    const pending=items.filter(t=>String(t.status).toUpperCase()!=='DONE').length;
+    return `<section class="task-day-institutional">
+      <div class="task-day-heading"><div><span></span><h3>${day}</h3></div><small>${pending?pending+' pendente(s)':items.length+' concluída(s)'}</small></div>
+      <div class="task-day-list">${taskItemsHtml(items)}</div>
+    </section>`;
+  }).join('')||'<div class="task-empty-institutional"><div>✓</div><strong>Nenhuma ação encontrada</strong><span>Altere o filtro ou aguarde novas tarefas.</span></div>';
 }
 
 function renderCatalogs(){
@@ -286,9 +318,24 @@ function svgGauge(value){
 function taskItemsHtml(tasks){
   return tasks.map(t=>{
     const done=String(t.status).toUpperCase()==='DONE';
-    const overdue=!done&&new Date(t.scheduledAt)<new Date();
-    return `<div class="task ${done?'done':overdue?'overdue':'due'}"><div class="task-info"><strong>${done?'Concluída':'Molhação'} — ${esc(t.lotCode)}</strong><small>${dateBR(t.scheduledAt)} · ${esc(t.responsible||'')}</small></div>${done?'<span class="done-mark">✓</span>':`<button data-confirm-task="${esc(t.id)}">Confirmar</button>`}</div>`;
-  }).join('')||'<div class="empty">Nenhum registro nesta categoria.</div>';
+    const due=new Date(t.scheduledAt), now=new Date();
+    const overdue=!done&&due<now;
+    const today=!done&&due.toDateString()===now.toDateString();
+    const state=done?'done':overdue?'overdue':today?'today':'upcoming';
+    const stateLabel=done?'Concluída':overdue?'Atrasada':today?'Hoje':'Programada';
+    return `<article class="task-card-institutional ${state}">
+      <div class="task-state-rail"></div>
+      <div class="task-date-block"><strong>${String(due.getDate()).padStart(2,'0')}</strong><span>${due.toLocaleDateString('pt-BR',{month:'short'}).replace('.','')}</span><small>${due.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</small></div>
+      <div class="task-main-info">
+        <div class="task-title-row"><span class="task-status-label ${state}">${stateLabel}</span><strong>Molhação — ${esc(t.lotCode)}</strong></div>
+        <p>${esc(t.responsible||'Responsável não informado')}</p>
+        <small>Confirmação operacional vinculada ao lote</small>
+      </div>
+      <div class="task-action-area">
+        ${done?'<span class="task-completed-check">✓ Confirmada</span>':`<button class="task-confirm-button" data-confirm-task="${esc(t.id)}">Confirmar execução</button>`}
+      </div>
+    </article>`;
+  }).join('')||'<div class="task-empty-institutional"><div>✓</div><strong>Nenhuma ação nesta categoria</strong><span>Quando houver novas tarefas, elas aparecerão aqui.</span></div>';
 }
 function renderDashboard(){
   const visible=APP.lots.filter(l=>!l.deletedAt), periodLots=dashboardVisibleLots();
@@ -328,10 +375,23 @@ function renderDashboard(){
     <div class="productivity-row"><div><small>Média semanal</small><strong>${formatQty(weekly)}</strong></div><div><small>Lotes no período</small><strong>${periodLots.length}</strong></div></div>
     <div class="productivity-note"><span>${pendingTotal}</span> ação(ões) ainda aguardam confirmação</div>`;
 
-  $('#lotProgress').innerHTML=visible.slice(0,6).map(l=>`<article class="lot-progress-card status-${lotStatus(l).toLowerCase()}" data-lot="${esc(l.id)}"><div class="lot-card-head"><div><strong>${esc(l.lotCode)}</strong><small>${esc(l.responsible)}</small></div><span class="badge ${lotStatus(l).toLowerCase()}">${lotStatusLabel(l)}</span></div><div class="progress-meta"><span>Andamento geral</span><b>${lotOverallProgress(l)}%</b></div><div class="progress-track"><i style="width:${lotOverallProgress(l)}%"></i></div><div class="lot-card-foot"><span>${dayDiff(l.manufacturedAt)} de ${l.cureDays} dias</span><span>${pendingLotTasks(l).length} pendência(s)</span></div></article>`).join('')||'<div class="empty">Nenhum lote cadastrado.</div>';
+  $('#lotProgress').innerHTML=visible.slice(0,6).map(l=>`<article class="traceability-card status-${lotStatus(l).toLowerCase()}" data-lot="${esc(l.id)}">
+    <div class="traceability-top"><div><span class="traceability-code">${esc(l.lotCode)}</span><strong>${esc(l.responsible)}</strong></div><span class="badge ${lotStatus(l).toLowerCase()}">${lotStatusLabel(l)}</span></div>
+    <div class="traceability-progress-head"><span>Progresso consolidado</span><b>${lotOverallProgress(l)}%</b></div>
+    <div class="traceability-progress"><i style="width:${lotOverallProgress(l)}%"></i></div>
+    <div class="traceability-metrics"><div><small>Cura</small><strong>${dayDiff(l.manufacturedAt)}/${l.cureDays} dias</strong></div><div><small>Pendências</small><strong>${pendingLotTasks(l).length}</strong></div><div><small>Produção</small><strong>${formatQty(l.quantity)}</strong></div></div>
+  </article>`).join('')||'<div class="empty">Nenhum lote cadastrado.</div>';
 
   const urgent=APP.tasks.filter(t=>!t.deletedAt&&String(t.status).toUpperCase()!=='DONE').sort((a,b)=>new Date(a.scheduledAt)-new Date(b.scheduledAt)).slice(0,5);
-  $('#nextTasks').innerHTML=taskItemsHtml(urgent);
+  $('#nextTasks').innerHTML=urgent.map(t=>{
+    const due=new Date(t.scheduledAt),late=due<new Date();
+    return `<article class="priority-card ${late?'overdue':'scheduled'}">
+      <div class="priority-marker"></div>
+      <div class="priority-time"><strong>${due.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</strong><span>${due.toLocaleDateString('pt-BR',{day:'2-digit',month:'short'}).replace('.','')}</span></div>
+      <div class="priority-content"><span>${late?'Atrasada':'Programada'}</span><strong>${esc(t.lotCode)}</strong><small>${esc(t.responsible||'')}</small></div>
+      <button data-confirm-task="${esc(t.id)}" aria-label="Confirmar">✓</button>
+    </article>`;
+  }).join('')||'<div class="priority-empty"><span>✓</span><strong>Nenhuma prioridade aberta</strong><small>As próximas ações aparecerão aqui.</small></div>';
 }
 function renderTasks(){
   const all=APP.tasks.filter(t=>!t.deletedAt).sort((a,b)=>new Date(a.scheduledAt)-new Date(b.scheduledAt));
