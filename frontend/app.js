@@ -1,4 +1,4 @@
-window.TERRALOTE_FRONTEND_VERSION='2.0.5';
+window.TERRALOTE_FRONTEND_VERSION='2.0.6';
 'use strict';
 
 const CONFIG = window.TERRALOTE_CONFIG;
@@ -167,7 +167,7 @@ function fillSelects(){
 function updateSoilInfo(){const s=APP.soils.find(x=>x.id===$('#soilSelect').value);$('#soilInfo').textContent=s?`${s.sandPct}% areia · ${s.clayPct}% argila · ${s.origin}`:'As porcentagens vêm do catálogo.';}
 
 async function submitLot(e){
-  e.preventDefault();const form=e.currentTarget;const button=e.submitter;setBusy(button,true,'Salvando...');
+  e.preventDefault();const form=e.currentTarget;const button=e.submitter;setBusy(button,true,'Salvando...');showLoading('Criando lote','Gerando o código, salvando o traço e programando a molhação.');
   try{
     const raw=Object.fromEntries(new FormData(form));
     const soil=APP.soils.find(s=>s.id===raw.soilId),plan=APP.plans.find(p=>p.id===raw.wateringPlanId);
@@ -175,9 +175,9 @@ async function submitLot(e){
     const lot={manufacturedAt:toISO(raw.manufacturedAt),quantity:num(raw.quantity),responsible:raw.responsible.trim(),soilId:soil.id,soilName:soil.name,soilOrigin:soil.origin,soilSandPct:num(soil.sandPct),soilClayPct:num(soil.clayPct),soilKg:num(raw.soilKg),sandKg:num(raw.sandKg),cementKg:num(raw.cementKg),cementType:raw.cementType,extraName:raw.extraName.trim(),extraQty:raw.extraQty===''?null:num(raw.extraQty),extraUnit:raw.extraUnit,moisturePct:raw.moisturePct===''?null:num(raw.moisturePct),wateringPlanId:plan.id,wateringPlanName:plan.name,wateringDays:num(plan.days),wateringTimes:plan.times,cureDays:num(raw.cureDays),notes:raw.notes.trim()};
     const created=await api('CREATE_LOT',{lot});APP.lots.unshift(created.lot);APP.tasks.push(...(created.tasks||[]));saveCache();renderAll();
     APP.lastCreatedId=created.lot.id;$('#lotDialog').close();form.reset();setDefaultDateTime();showCreated(created.lot);
-  }catch(err){toast(err.message,true);}finally{setBusy(button,false);}
+  }catch(err){toast(err.message,true);}finally{hideLoading();setBusy(button,false);}
 }
-function showCreated(l){$('#createdContent').innerHTML=`<div class="created-box"><div class="success-icon">✓</div><h2>Lote ${esc(l.lotCode)} criado</h2><p>O registro foi salvo na planilha e as molhações foram programadas.</p><div class="created-actions"><button class="primary" data-created-open="${esc(l.id)}">Abrir lote</button><button class="secondary" data-print="${esc(l.id)}">Imprimir</button><button class="danger ghost" data-delete-lot="${esc(l.id)}" data-close-after>Excluir lote</button></div></div>`;$('#createdDialog').showModal();}
+function showCreated(l){$('#createdContent').innerHTML=`<div class="created-box"><button type="button" class="icon created-close" data-close="createdDialog">×</button><div class="success-icon">✓</div><h2>Lote ${esc(l.lotCode)} criado</h2><p>O registro foi salvo na planilha e as molhações foram programadas.</p><div class="created-actions"><button class="primary" data-created-open="${esc(l.id)}">Abrir lote</button><button class="secondary" data-print="${esc(l.id)}">Imprimir</button><button class="danger ghost" data-delete-lot="${esc(l.id)}" data-close-after>Excluir lote</button></div></div>`;$('#createdDialog').showModal();}
 
 async function submitSoil(e){e.preventDefault();const form=e.currentTarget;const b=e.submitter;setBusy(b,true,'Cadastrando...');showLoading('Criando terra','Salvando a origem e sua composição no catálogo.');try{const f=Object.fromEntries(new FormData(form));if(num(f.sandPct)+num(f.clayPct)>105)throw new Error('A soma de areia e argila parece inconsistente.');const soil=await api('CREATE_SOIL',{soil:{name:f.name.trim(),origin:f.origin.trim(),sandPct:num(f.sandPct),clayPct:num(f.clayPct),notes:f.notes.trim()}});APP.soils.push(soil);saveCache();renderAll();if(form&&typeof form.reset==='function')form.reset();const dlg=$('#soilDialog');if(dlg&&dlg.open)dlg.close();successAndClose('#soilDialog','Terra criada com sucesso.');}catch(err){toast(err.message,true)}finally{hideLoading();setBusy(b,false)}}
 async function submitPlan(e){e.preventDefault();const form=e.currentTarget;const b=e.submitter;setBusy(b,true,'Criando...');showLoading('Criando plano de molhação','Gerando a programação personalizada.');try{const f=Object.fromEntries(new FormData(form));const times=f.times.split(',').map(x=>x.trim()).filter(Boolean);if(times.some(x=>!/^([01]\d|2[0-3]):[0-5]\d$/.test(x)))throw new Error('Use horários no formato 07:00, 12:00.');const plan=await api('CREATE_PLAN',{plan:{name:f.name.trim(),days:num(f.days),times,description:f.description.trim()}});APP.plans.push(plan);saveCache();renderAll();if(form&&typeof form.reset==='function')form.reset();const dlg=$('#planDialog');if(dlg&&dlg.open)dlg.close();successAndClose('#planDialog','Plano de molhação criado com sucesso.');}catch(err){toast(err.message,true)}finally{hideLoading();setBusy(b,false)}}
@@ -209,6 +209,284 @@ async function changePassword(e){
     setTimeout(()=>logout(false),700);
   }catch(err){$('#passwordMessage').style.color='var(--danger)';$('#passwordMessage').textContent=err.message}
   finally{hideLoading();setBusy(b,false)}
+}
+
+
+function productionSeries(){
+  const groups={};
+  APP.lots.filter(l=>!l.deletedAt).forEach(l=>{
+    const d=new Date(l.manufacturedAt);
+    if(Number.isNaN(d.getTime()))return;
+    const key=d.toISOString().slice(0,7);
+    groups[key]=(groups[key]||0)+num(l.quantity);
+  });
+  return Object.entries(groups).sort(([a],[b])=>a.localeCompare(b)).slice(-6);
+}
+
+function taskItemsHtml(tasks){
+  return tasks.map(t=>{
+    const done=String(t.status).toUpperCase()==='DONE';
+    const overdue=!done&&new Date(t.scheduledAt)<new Date();
+    return `<div class="task ${done?'done':overdue?'overdue':'due'}">
+      <div class="task-info">
+        <strong>${done?'Concluída':'Molhação'} — ${esc(t.lotCode)}</strong>
+        <small>${dateBR(t.scheduledAt)} · ${esc(t.responsible||'')}</small>
+      </div>
+      ${done?'<span class="done-mark">✓</span>':`<button data-confirm-task="${esc(t.id)}">Confirmar</button>`}
+    </div>`;
+  }).join('')||'<div class="empty">Nenhum registro nesta categoria.</div>';
+}
+
+function renderDashboard(){
+  const visible=APP.lots.filter(l=>!l.deletedAt);
+  const active=visible.filter(l=>lotStatus(l)!=='COMPLETED').length;
+  const priority=APP.tasks.filter(t=>!t.deletedAt&&String(t.status).toUpperCase()!=='DONE'&&new Date(t.scheduledAt)<=new Date(Date.now()+86400000)).length;
+  $('#kpiActive').textContent=active;
+  $('#kpiPending').textContent=priority;
+  $('#kpiBricks').textContent=visible.reduce((s,l)=>s+num(l.quantity),0).toLocaleString('pt-BR');
+  $('#navPendingBadge').textContent=APP.tasks.filter(t=>!t.deletedAt&&String(t.status).toUpperCase()!=='DONE').length;
+
+  $('#lotProgress').innerHTML=visible.slice(0,8).map(l=>`
+    <article class="lot-progress-card status-${lotStatus(l).toLowerCase()}" data-lot="${esc(l.id)}">
+      <div class="lot-card-head">
+        <div><strong>${esc(l.lotCode)}</strong><small>${esc(l.responsible)}</small></div>
+        <span class="badge ${lotStatus(l).toLowerCase()}">${lotStatusLabel(l)}</span>
+      </div>
+      <div class="progress-meta"><span>Andamento geral</span><b>${lotOverallProgress(l)}%</b></div>
+      <div class="progress-track"><i style="width:${lotOverallProgress(l)}%"></i></div>
+      <div class="lot-card-foot"><span>${dayDiff(l.manufacturedAt)} de ${l.cureDays} dias</span><span>${pendingLotTasks(l).length} pendência(s)</span></div>
+    </article>`).join('')||'<div class="empty">Nenhum lote cadastrado.</div>';
+
+  const urgent=APP.tasks.filter(t=>!t.deletedAt&&String(t.status).toUpperCase()!=='DONE')
+    .sort((a,b)=>new Date(a.scheduledAt)-new Date(b.scheduledAt)).slice(0,5);
+  $('#nextTasks').innerHTML=taskItemsHtml(urgent);
+
+  const cements={};
+  visible.forEach(l=>cements[l.cementType]=(cements[l.cementType]||0)+num(l.quantity));
+  const max=Math.max(1,...Object.values(cements));
+  $('#mixChart').innerHTML=Object.entries(cements).map(([k,v])=>`
+    <div class="bar-group"><span>${formatQty(v)}</span><div class="bar" style="height:${Math.max(12,v/max*110)}px"></div><small>${esc(k)}</small></div>`
+  ).join('')||'<div class="empty">Sem dados.</div>';
+
+  const series=productionSeries();
+  const maxProd=Math.max(1,...series.map(x=>x[1]));
+  $('#productionChart').innerHTML=`<div class="spark-bars">${series.map(([m,v])=>`
+    <div><i style="height:${Math.max(8,v/maxProd*100)}%"></i><small>${m.slice(5)}/${m.slice(2,4)}</small></div>`
+  ).join('')}</div><strong>${formatQty(series.reduce((s,x)=>s+x[1],0))} tijolos</strong>`;
+
+  const completed=visible.filter(l=>lotStatus(l)==='COMPLETED').length;
+  const overdue=visible.filter(l=>lotStatus(l)==='OVERDUE').length;
+  const curing=visible.length-completed-overdue;
+  const total=Math.max(1,visible.length), a=completed/total*360, b=(completed+curing)/total*360;
+  $('#statusChart').innerHTML=`<div class="mini-donut" style="background:conic-gradient(#28836a 0 ${a}deg,#d7a343 ${a}deg ${b}deg,#c45243 ${b}deg 360deg)"><span>${visible.length}</span></div>
+    <div class="mini-legend"><span><i class="green"></i>${completed} concluído(s)</span><span><i class="amber"></i>${curing} andamento</span><span><i class="red"></i>${overdue} com pendência</span></div>`;
+
+  const dates=visible.map(l=>new Date(l.manufacturedAt).getTime()).filter(Number.isFinite);
+  const days=dates.length?Math.max(1,(Math.max(...dates)-Math.min(...dates))/86400000+1):1;
+  const totalQty=visible.reduce((s,l)=>s+num(l.quantity),0);
+  $('#averageProduction').innerHTML=`<div><small>Média diária</small><strong>${formatQty(totalQty/days)}</strong><span>tijolos/dia</span></div>
+    <div><small>Média semanal</small><strong>${formatQty(totalQty/days*7)}</strong><span>tijolos/semana</span></div>`;
+}
+
+function renderTasks(){
+  const all=APP.tasks.filter(t=>!t.deletedAt).sort((a,b)=>new Date(a.scheduledAt)-new Date(b.scheduledAt));
+  const filtered=APP.taskFilter==='all'?all:
+    APP.taskFilter==='done'?all.filter(t=>String(t.status).toUpperCase()==='DONE'):
+    all.filter(t=>String(t.status).toUpperCase()!=='DONE');
+  const groups={};
+  filtered.forEach(t=>{
+    const key=new Date(t.scheduledAt).toLocaleDateString('pt-BR');
+    (groups[key]??=[]).push(t);
+  });
+  $('#taskGroups').innerHTML=Object.entries(groups).map(([day,items])=>`
+    <section class="task-day">
+      <div class="task-day-head"><h3>${day}</h3><span>${items.length} ação(ões)</span></div>
+      ${taskItemsHtml(items)}
+    </section>`).join('')||'<div class="empty">Nenhuma tarefa encontrada.</div>';
+}
+
+function renderLots(filter=$('#lotSearch')?.value||''){
+  const q=String(filter).toLowerCase();
+  const rows=APP.lots.filter(l=>!l.deletedAt&&JSON.stringify(l).toLowerCase().includes(q));
+  $('#lotsCards').innerHTML=rows.map(l=>`
+    <article class="lot-mobile-card status-${lotStatus(l).toLowerCase()}" data-lot="${esc(l.id)}">
+      <div><strong>${esc(l.lotCode)}</strong><small>${dateBR(l.manufacturedAt)}</small></div>
+      <span class="badge ${lotStatus(l).toLowerCase()}">${lotStatusLabel(l)}</span>
+      <div class="mobile-progress"><i style="width:${lotOverallProgress(l)}%"></i></div>
+      <p>${formatQty(l.quantity)} tijolos · ${lotOverallProgress(l)}%</p>
+    </article>`).join('')||'<div class="empty">Nenhum lote encontrado.</div>';
+
+  $('#lotsTable').innerHTML=rows.map(l=>`
+    <tr data-lot="${esc(l.id)}">
+      <td><strong>${esc(l.lotCode)}</strong></td>
+      <td>${dateBR(l.manufacturedAt)}</td>
+      <td>${formatQty(l.quantity)}</td>
+      <td>${formatMix(l)}</td>
+      <td>${esc(l.responsible)}</td>
+      <td><span class="badge ${lotStatus(l).toLowerCase()}">${lotStatusLabel(l)}</span></td>
+      <td><div class="table-progress"><i style="width:${lotOverallProgress(l)}%"></i><b>${lotOverallProgress(l)}%</b></div></td>
+      <td><button class="secondary" data-print="${esc(l.id)}">Imprimir</button></td>
+    </tr>`).join('');
+}
+
+function openChartDetail(type){
+  const visible=APP.lots.filter(l=>!l.deletedAt), series=productionSeries();
+  let title='',body='';
+  if(type==='production'){
+    title='Produção por mês';
+    body=`<div class="detail-list">${series.map(([m,v])=>`<div><span>${m}</span><strong>${formatQty(v)} tijolos</strong></div>`).join('')}</div>`;
+  }
+  if(type==='status'){
+    title='Situação dos lotes';
+    body=`<div class="detail-list">${visible.map(l=>`<div data-lot="${esc(l.id)}"><span>${esc(l.lotCode)} · ${esc(l.responsible)}</span><strong>${lotStatusLabel(l)} · ${lotOverallProgress(l)}%</strong></div>`).join('')}</div>`;
+  }
+  if(type==='cement'){
+    const g={};visible.forEach(l=>g[l.cementType]=(g[l.cementType]||0)+num(l.quantity));
+    title='Produção por tipo de cimento';
+    body=`<div class="detail-list">${Object.entries(g).map(([k,v])=>`<div><span>${esc(k)}</span><strong>${formatQty(v)} tijolos</strong></div>`).join('')}</div>`;
+  }
+  if(type==='average'){
+    title='Indicadores de produção';
+    body='<p class="helper-box">As médias são calculadas a partir dos lotes registrados. Quanto mais completo o histórico, mais representativo será o indicador.</p>';
+  }
+  $('#chartDetailContent').innerHTML=`<div class="dialog-head"><div><p>ANÁLISE</p><h2>${title}</h2></div><button class="icon" data-close="chartDialog">×</button></div>${body}`;
+  $('#chartDialog').showModal();
+}
+
+async function requestForgotCode(){
+  const b=$('#forgotSendCodeBtn');
+  $('#forgotMessage').textContent='';
+  setBusy(b,true,'Enviando...');
+  showLoading('Enviando código','Aguarde a confirmação do servidor.');
+  try{
+    await api('REQUEST_PASSWORD_RESET_CODE');
+    $('#forgotMessage').style.color='var(--success)';
+    $('#forgotMessage').textContent='Código enviado. Verifique o e-mail administrativo.';
+  }catch(err){
+    $('#forgotMessage').style.color='var(--danger)';
+    $('#forgotMessage').textContent=err.message;
+  }finally{
+    hideLoading();setBusy(b,false);
+  }
+}
+
+async function resetForgotPassword(e){
+  e.preventDefault();
+  const form=e.currentTarget,b=e.submitter,f=Object.fromEntries(new FormData(form));
+  $('#forgotMessage').textContent='';
+  if(f.newPassword!==f.confirmPassword){
+    $('#forgotMessage').textContent='As senhas informadas não coincidem.';
+    return;
+  }
+  setBusy(b,true,'Redefinindo...');
+  showLoading('Redefinindo o acesso','Validando o código de segurança.');
+  try{
+    await api('RESET_PASSWORD_WITH_CODE',{
+      newUsername:f.newUsername.trim(),
+      newPassword:f.newPassword,
+      verificationCode:f.verificationCode.trim()
+    });
+    form.reset();
+    closeDialog('#forgotDialog');
+    toast('Acesso redefinido. Entre com o novo usuário e a nova senha.');
+  }catch(err){
+    $('#forgotMessage').style.color='var(--danger)';
+    $('#forgotMessage').textContent=err.message;
+  }finally{
+    hideLoading();setBusy(b,false);
+  }
+}
+
+function setDefaultDateTime(){
+  const d=new Date();
+  const local=new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);
+  const field=$('#lotForm [name=manufacturedAt]');
+  if(field)field.value=local;
+}
+
+function navigate(view){
+  $$('.nav').forEach(x=>x.classList.toggle('active',x.dataset.view===view));
+  $$('.view').forEach(x=>x.classList.toggle('active',x.id===view));
+  const btn=$(`.nav[data-view="${view}"]`);
+  $('#pageTitle').textContent=btn?btn.textContent.replace(/\d+/g,'').trim():'TerraLote';
+  $('#sidebar').classList.remove('open');
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+function connection(){
+  const on=navigator.onLine;
+  $('#connectionDot').style.background=on?'#63d39c':'#e4a93f';
+  $('#connectionText').textContent=on?'Online · dados sincronizados':'Offline · usando dados salvos';
+  if(on&&APP.token)bootstrap().catch(()=>{});
+}
+
+function bindEvents(){
+  $('#loginForm')?.addEventListener('submit',login);
+  $('#forgotForm')?.addEventListener('submit',resetForgotPassword);
+  $('#sendCodeBtn')?.addEventListener('click',requestCredentialCode);
+  $('#forgotSendCodeBtn')?.addEventListener('click',requestForgotCode);
+  $('#forgotPasswordBtn').onclick=()=>$('#forgotDialog').showModal();
+  $('#lotForm')?.addEventListener('submit',submitLot);
+  $('#soilForm')?.addEventListener('submit',submitSoil);
+  $('#planForm')?.addEventListener('submit',submitPlan);
+  $('#passwordForm')?.addEventListener('submit',changePassword);
+
+  $('#newLotBtn').onclick=()=>{setDefaultDateTime();$('#lotDialog').showModal()};
+  $('#newSoilBtn').onclick=()=>$('#soilDialog').showModal();
+  $('#newPlanBtn').onclick=()=>$('#planDialog').showModal();
+  $('#accountBtn').onclick=()=>$('#accountDialog').showModal();
+  $('#logoutBtn').onclick=()=>logout();
+  $('#menuBtn').onclick=()=>$('#sidebar').classList.toggle('open');
+  $('#soilSelect').onchange=updateSoilInfo;
+  $('#lotSearch').oninput=e=>renderLots(e.target.value);
+
+  $$('.nav').forEach(b=>b.onclick=()=>navigate(b.dataset.view));
+  $$('[data-go]').forEach(b=>b.onclick=()=>navigate(b.dataset.go));
+  $$('.tab').forEach(b=>b.onclick=()=>{
+    $$('.tab').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    $$('.tab-panel').forEach(x=>x.classList.remove('active'));
+    $('#'+b.dataset.tab+'Tab').classList.add('active');
+  });
+
+  document.addEventListener('click',e=>{
+    const close=e.target.closest('[data-close]');
+    if(close){document.getElementById(close.dataset.close)?.close();return;}
+
+    const tf=e.target.closest('[data-task-filter]');
+    if(tf){
+      APP.taskFilter=tf.dataset.taskFilter;
+      $$('[data-task-filter]').forEach(x=>x.classList.toggle('active',x===tf));
+      renderTasks();return;
+    }
+
+    const chart=e.target.closest('[data-chart]');
+    if(chart){openChartDetail(chart.dataset.chart);return;}
+
+    const print=e.target.closest('[data-print]');
+    if(print){e.stopPropagation();printLot(print.dataset.print);return;}
+
+    const delLot=e.target.closest('[data-delete-lot]');
+    if(delLot){e.stopPropagation();deleteEntity('LOT',delLot.dataset.deleteLot);return;}
+
+    const delSoil=e.target.closest('[data-delete-soil]');
+    if(delSoil){deleteEntity('SOIL',delSoil.dataset.deleteSoil);return;}
+
+    const delPlan=e.target.closest('[data-delete-plan]');
+    if(delPlan){deleteEntity('PLAN',delPlan.dataset.deletePlan);return;}
+
+    const conf=e.target.closest('[data-confirm-task]');
+    if(conf){confirmTask(conf.dataset.confirmTask);return;}
+
+    const created=e.target.closest('[data-created-open]');
+    if(created){$('#createdDialog').close();showDetail(created.dataset.createdOpen);return;}
+
+    const lot=e.target.closest('[data-lot]');
+    if(lot)showDetail(lot.dataset.lot);
+  });
+
+  window.addEventListener('online',connection);
+  window.addEventListener('offline',connection);
 }
 
 async function init(){
