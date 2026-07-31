@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="TerraLote">
   <title>TerraLote — Controle de Produção e Cura</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="styles.css?v=206">
+  <link rel="stylesheet" href="styles.css?v=300">
 </head>
 <body>
   <section id="loginScreen" class="login-screen">
@@ -51,39 +51,99 @@
       </header>
 
       <section id="dashboard" class="view active">
-        <div class="kpi-grid three">
-          <article class="kpi"><span class="kpi-icon">▦</span><div><small>Lotes ativos</small><strong id="kpiActive">0</strong><p>em fabricação ou cura</p></div></article>
-          <article class="kpi warning"><span class="kpi-icon">!</span><div><small>Pendências prioritárias</small><strong id="kpiPending">0</strong><p>atrasadas ou previstas para hoje</p></div></article>
-          <article class="kpi"><span class="kpi-icon">▥</span><div><small>Tijolos catalogados</small><strong id="kpiBricks">0</strong><p>quantidade acumulada</p></div></article>
+        <div class="dashboard-intro">
+          <div>
+            <p class="section-kicker">PAINEL OPERACIONAL</p>
+            <h2>Produção e cura em tempo real</h2>
+            <p>Acompanhe o volume produzido, a situação dos lotes e as ações que exigem atenção.</p>
+          </div>
+          <div class="period-control" aria-label="Período do painel">
+            <button type="button" class="active" data-period="30">30 dias</button>
+            <button type="button" data-period="90">90 dias</button>
+            <button type="button" data-period="365">12 meses</button>
+          </div>
         </div>
 
-        <div class="dashboard-grid">
+        <div class="executive-kpis">
+          <article class="executive-kpi">
+            <div class="kpi-symbol"><span>▦</span></div>
+            <div><small>Lotes em andamento</small><strong id="kpiActive">0</strong><p id="kpiActiveCaption">produção ou cura</p></div>
+            <span class="kpi-trend neutral" id="kpiActiveTrend">Atual</span>
+          </article>
+          <article class="executive-kpi attention">
+            <div class="kpi-symbol"><span>!</span></div>
+            <div><small>Ações prioritárias</small><strong id="kpiPending">0</strong><p>atrasadas ou para hoje</p></div>
+            <span class="kpi-trend warning" id="kpiPendingTrend">Atenção</span>
+          </article>
+          <article class="executive-kpi">
+            <div class="kpi-symbol"><span>▥</span></div>
+            <div><small>Produção acumulada</small><strong id="kpiBricks">0</strong><p>tijolos cadastrados</p></div>
+            <span class="kpi-trend positive" id="kpiProductionTrend">Histórico</span>
+          </article>
+          <article class="executive-kpi">
+            <div class="kpi-symbol"><span>✓</span></div>
+            <div><small>Taxa de conclusão</small><strong id="kpiCompletion">0%</strong><p>lotes concluídos</p></div>
+            <span class="kpi-trend positive" id="kpiCompletionTrend">Qualidade</span>
+          </article>
+        </div>
+
+        <div class="dashboard-analytics-main">
+          <article class="panel chart-panel chart-panel-large" data-chart="production">
+            <div class="panel-head">
+              <div><p class="chart-eyebrow">VOLUME PRODUZIDO</p><h2>Produção no período</h2><p>Quantidade de tijolos por data de fabricação</p></div>
+              <button class="chart-action" type="button" aria-label="Expandir gráfico">Ver análise <span>↗</span></button>
+            </div>
+            <div class="chart-summary-row">
+              <div><small>Total no período</small><strong id="productionPeriodTotal">0</strong><span>tijolos</span></div>
+              <div><small>Média por lote</small><strong id="productionLotAverage">0</strong><span>tijolos</span></div>
+              <div><small>Maior produção</small><strong id="productionPeak">0</strong><span>em um lote</span></div>
+            </div>
+            <div id="productionChart" class="institutional-chart chart-production"></div>
+          </article>
+
+          <article class="panel chart-panel" data-chart="status">
+            <div class="panel-head">
+              <div><p class="chart-eyebrow">CONTROLE DE LOTES</p><h2>Situação atual</h2><p>Distribuição dos status operacionais</p></div>
+              <button class="chart-action icon-only" type="button" aria-label="Expandir gráfico">↗</button>
+            </div>
+            <div id="statusChart" class="institutional-chart chart-status"></div>
+          </article>
+        </div>
+
+        <div class="dashboard-analytics-secondary">
+          <article class="panel chart-panel" data-chart="completion">
+            <div class="panel-head">
+              <div><p class="chart-eyebrow">DESEMPENHO</p><h2>Progresso médio</h2><p>Cura e cumprimento das molhações</p></div>
+              <button class="chart-action icon-only" type="button" aria-label="Expandir gráfico">↗</button>
+            </div>
+            <div id="completionGauge" class="institutional-chart gauge-chart"></div>
+          </article>
+
+          <article class="panel chart-panel" data-chart="cement">
+            <div class="panel-head">
+              <div><p class="chart-eyebrow">COMPOSIÇÃO</p><h2>Produção por cimento</h2><p>Volume de tijolos por tipo utilizado</p></div>
+              <button class="chart-action icon-only" type="button" aria-label="Expandir gráfico">↗</button>
+            </div>
+            <div id="mixChart" class="institutional-chart horizontal-bars"></div>
+          </article>
+
+          <article class="panel chart-panel" data-chart="productivity">
+            <div class="panel-head">
+              <div><p class="chart-eyebrow">PRODUTIVIDADE</p><h2>Indicadores médios</h2><p>Leitura diária e semanal</p></div>
+              <button class="chart-action icon-only" type="button" aria-label="Expandir gráfico">↗</button>
+            </div>
+            <div id="averageProduction" class="productivity-metrics"></div>
+          </article>
+        </div>
+
+        <div class="dashboard-operations">
           <article class="panel dashboard-lots">
-            <div class="panel-head"><div><h2>Andamento dos lotes</h2><p>Toque em um lote para abrir os detalhes</p></div><button class="text-button" data-go="lots">Ver todos</button></div>
-            <div id="lotProgress" class="lot-progress-grid"></div>
+            <div class="panel-head"><div><p class="chart-eyebrow">RASTREABILIDADE</p><h2>Andamento dos lotes</h2><p>Selecione um lote para visualizar os detalhes</p></div><button class="text-button" data-go="lots">Ver todos</button></div>
+            <div id="lotProgress" class="lot-progress-grid professional"></div>
           </article>
           <article class="panel dashboard-tasks">
-            <div class="panel-head"><div><h2>Prioridades de hoje</h2><p>Organizadas por urgência</p></div><button class="text-button" data-go="tasks">Ver pendências</button></div>
+            <div class="panel-head"><div><p class="chart-eyebrow">PRIORIDADES</p><h2>Próximas ações</h2><p>Organizadas pela data e urgência</p></div><button class="text-button" data-go="tasks">Ver pendências</button></div>
             <div id="nextTasks" class="task-list compact"></div>
-          </article>
-        </div>
-
-        <div class="analytics-grid">
-          <article class="panel analytic-card clickable" data-chart="production">
-            <div class="panel-head"><div><h2>Produção no período</h2><p>Toque para consultar meses e detalhes</p></div><span class="expand-icon">↗</span></div>
-            <div id="productionChart" class="line-chart"></div>
-          </article>
-          <article class="panel analytic-card clickable" data-chart="status">
-            <div class="panel-head"><div><h2>Situação dos lotes</h2><p>Em andamento, concluídos e com atraso</p></div><span class="expand-icon">↗</span></div>
-            <div id="statusChart" class="donut-card"></div>
-          </article>
-          <article class="panel analytic-card clickable" data-chart="cement">
-            <div class="panel-head"><div><h2>Produção por cimento</h2><p>Participação por tipo utilizado</p></div><span class="expand-icon">↗</span></div>
-            <div id="mixChart" class="bar-chart"></div>
-          </article>
-          <article class="panel analytic-card clickable" data-chart="average">
-            <div class="panel-head"><div><h2>Média de produção</h2><p>Indicadores diário e semanal</p></div><span class="expand-icon">↗</span></div>
-            <div id="averageProduction" class="metric-pair"></div>
           </article>
         </div>
       </section>
@@ -137,7 +197,18 @@
         <label>Unidade do extra<select name="extraUnit"><option value="kg">kg</option><option value="g">g</option><option value="L">L</option><option value="mL">mL</option><option value="%">%</option></select></label>
         <label>Coeficiente/teor de umidade (%)<input name="moisturePct" inputmode="decimal" type="number" min="0" step="0.01" placeholder="Opcional"></label>
         <label>Plano de molhação<select name="wateringPlanId" id="wateringPlanSelect" required></select></label>
-        <label>Cura programada (dias)<select name="cureDays"><option>5</option><option>15</option><option selected>28</option><option>56</option></select></label>
+        <label>Cura programada (dias)
+          <div class="number-with-presets">
+            <input name="cureDays" id="cureDaysInput" inputmode="numeric" type="number" min="1" max="3650" step="1" required placeholder="Digite a quantidade de dias">
+            <div class="preset-buttons" aria-label="Sugestões de dias">
+              <button type="button" data-cure-days="5">5</button>
+              <button type="button" data-cure-days="15">15</button>
+              <button type="button" data-cure-days="28">28</button>
+              <button type="button" data-cure-days="56">56</button>
+            </div>
+          </div>
+          <small class="field-hint">Digite qualquer período ou use uma das sugestões.</small>
+        </label>
         <label class="span-2">Observações<textarea name="notes" rows="3" placeholder="Informações adicionais sobre a produção"></textarea></label>
       </div>
       <div class="dialog-actions sticky"><button type="button" class="secondary" data-close="lotDialog">Cancelar</button><button class="primary" type="submit">Salvar lote</button></div>
@@ -186,8 +257,8 @@
     </form>
   </dialog>
 
-  <dialog id="chartDialog" class="sheet-dialog">
-    <div id="chartDetailContent"></div>
+  <dialog id="chartDialog" class="analytics-dialog">
+    <div id="chartDetailContent" class="analytics-dialog-content"></div>
   </dialog>
 
   <div id="loadingOverlay" class="loading-overlay hidden" aria-live="polite">
@@ -195,7 +266,7 @@
   </div>
 
   <div id="toast" class="toast" role="status"></div>
-  <script src="config.js?v=206"></script>
-  <script src="app.js?v=206"></script>
+  <script src="config.js?v=300"></script>
+  <script src="app.js?v=300"></script>
 </body>
 </html>
