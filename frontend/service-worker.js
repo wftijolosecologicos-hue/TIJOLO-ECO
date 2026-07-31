@@ -1,4 +1,4 @@
-const CACHE='terralote-v300';
+const CACHE='terralote-v310';
 const SHELL=['./','index.html','styles.css?v=204','config.js?v=204','app.js?v=204','manifest.json'];
 self.addEventListener('install',event=>{
   self.skipWaiting();
