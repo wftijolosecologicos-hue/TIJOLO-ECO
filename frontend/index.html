@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-title" content="TerraLote">
   <title>TerraLote - Produção e Gestão</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="styles.css?v=400">
+  <link rel="stylesheet" href="styles.css?v=430">
 </head>
 <body>
   <section id="loginScreen" class="login-screen">
@@ -17,7 +17,7 @@
       <h1>Acesso ao sistema</h1>
       <p>Entre com seu usuário ou e-mail e sua senha.</p>
       <form id="loginForm" class="stack-form">
-        <label>Usuário ou e-mail<input name="login" autocomplete="username" required></label>
+        <label>Usuário<input name="login" autocomplete="username" required></label>
         <label>Senha<input name="password" type="password" autocomplete="current-password" required></label>
         <button class="primary wide" type="submit">Entrar</button>
         <div id="loginMessage" class="form-message"></div>
@@ -65,6 +65,10 @@
           <article class="panel"><div class="panel-head"><div><p class="eyebrow">PRODUÇÃO</p><h2>Últimos 14 dias</h2></div></div><div id="productionChart" class="bars-chart"></div></article>
           <article class="panel"><div class="panel-head"><div><p class="eyebrow">EQUIPE</p><h2>Comissão no ciclo atual</h2></div></div><div id="commissionChart" class="commission-chart"></div></article>
         </div>
+        <div class="team-overview-grid">
+          <article class="panel"><div class="panel-head"><div><p class="eyebrow">ESCALA</p><h2>Próximos dias</h2><p>Funções previstas por colaborador e turno.</p></div><button class="text-btn" data-go="schedule">Abrir escala</button></div><div id="dashboardSchedule" class="dashboard-schedule"></div></article>
+          <article class="panel weekly-calendar-panel"><div class="panel-head"><div><p class="eyebrow">PRESENÇA</p><h2>Calendário semanal</h2><p>Vermelho indica falta/off. Observações aparecem no próprio turno.</p></div></div><div id="weeklyAttendance" class="weekly-attendance"></div></article>
+        </div>
       </section>
 
       <section id="lots" class="view">
@@ -83,7 +87,7 @@
       </section>
 
       <section id="schedule" class="view">
-        <div class="section-head"><div><p class="eyebrow">ORGANIZAÇÃO</p><h2>Funções e escala</h2><p>Todos visualizam; somente ADMIN altera.</p></div><div class="admin-only action-row"><button class="secondary" id="newFunctionBtn">＋ Função</button><button class="primary" id="generateRotationBtn">Gerar rotação</button></div></div>
+        <div class="section-head"><div><p class="eyebrow">ORGANIZAÇÃO</p><h2>Funções e escala</h2><p>Todos visualizam; somente ADMIN altera.</p></div><div class="admin-only action-row"><button class="secondary" id="newFunctionBtn">＋ Função</button><button class="secondary danger-action" id="deleteScheduleBtn">Excluir escala</button><button class="primary" id="generateRotationBtn">Gerar rotação</button></div></div>
         <div id="functionsList" class="function-chips"></div>
         <article class="panel"><div class="panel-head"><div><h2>Escala dos próximos dias</h2></div></div><div id="scheduleList" class="schedule-board"></div></article>
       </section>
@@ -111,15 +115,16 @@
         <label>Turno<select name="shift" required><option value="MANHA">Manhã</option><option value="TARDE">Tarde</option></select></label>
         <label>Quantidade de tijolos<input name="quantity" type="number" min="1" required></label>
         <label>Terra / origem<select name="soilId" id="lotSoil" required></select></label>
-        <div class="form-section span-2"><h3>TRAÇO</h3><p>Balde padrão: 18 L. Utilize valores como 0,5 para meio balde.</p></div>
-        <label>Quantidade de Terra - baldes<input name="soilBuckets" type="number" min="0.5" step="0.5" value="4.5" required></label>
-        <label>Quantidade de Areia - baldes<input name="sandBuckets" type="number" min="0" step="0.5" value="0.5" required></label>
-        <label>Quantidade de Cimento - baldes<input name="cementBuckets" type="number" min="0.5" step="0.5" value="0.5" required></label>
+        <div class="form-section span-2"><h3>TRAÇO</h3><p>Selecione a proporção utilizada no lote. O balde de referência é de 18 L.</p></div>
+        <label class="span-2">Traço utilizado<select name="recipeId" id="recipeSelect" required></select></label>
+        <div id="recipeSummary" class="recipe-summary span-2"></div>
         <label>Tipo de cimento<input name="cementType" value="CP II" list="cementTypes" required><datalist id="cementTypes"><option>CP II</option><option>CP II-F</option><option>CP II-Z</option><option>CP V-ARI</option></datalist></label>
-        <div id="mixProfileBox" class="mix-profile span-2"></div>
         <label>Outro tipo de material?<select name="hasExtra" id="hasExtra" required><option value="NO" selected>NÃO</option><option value="YES">SIM</option></select></label>
-        <label>Coeficiente de umidade<input name="moisture" type="number" step="0.001" required></label>
-        <div id="extrasWrap" class="span-2 hidden"><div class="panel-head"><h3>Materiais extras</h3><button type="button" class="secondary" id="addExtraBtn">＋ Material</button></div><div id="extrasList"></div></div>
+        <div id="extrasWrap" class="span-2 hidden">
+          <div class="panel-head"><div><h3>Materiais extras</h3><p class="muted-small">Adicione um ou mais materiais utilizados neste lote.</p></div><button type="button" class="secondary" id="addExtraBtn">＋ Material</button></div>
+          <div id="extrasList"></div>
+          <label class="moisture-extra">Coeficiente de umidade<input name="moisture" id="moistureField" type="number" step="0.001" min="0" placeholder="Informe o coeficiente"></label>
+        </div>
         <label>Enrolado em plástico-filme?<select name="plasticWrapped" id="plasticWrapped" required><option value="YES" selected>SIM</option><option value="NO">NÃO</option></select></label>
         <label id="wateringField" class="hidden">Plano de molhação<select name="wateringPlanId" id="wateringPlan"></select></label>
         <label>Cura programada - dias<input name="cureDays" type="number" min="1" value="28" required></label>
@@ -130,10 +135,11 @@
   </dialog>
 
   <dialog id="detailDialog" class="sheet-dialog"><div id="detailContent"></div></dialog>
-  <dialog id="userDialog" class="small-dialog"><form id="userForm"><div class="dialog-head"><h2>Novo usuário</h2><button type="button" class="icon" data-close="userDialog">×</button></div><div class="stack-form"><label>Nome<input name="fullName" required></label><label>Usuário<input name="username" required></label><label>E-mail<input name="email" type="email" required></label><label>Senha inicial<input name="password" type="password" minlength="8" required></label><label>Perfil<select name="role"><option>OPERADOR</option><option>SUPERVISOR</option><option>VISUALIZADOR</option><option>ADMIN</option></select></label><button class="primary" type="submit">Criar usuário</button></div></form></dialog>
+  <dialog id="userDialog" class="small-dialog"><form id="userForm"><div class="dialog-head"><h2>Novo usuário</h2><button type="button" class="icon" data-close="userDialog">×</button></div><div class="stack-form"><label>Nome<input name="fullName" required></label><label>Usuário<input name="username" required></label><label>Senha inicial<input name="password" type="password" minlength="8" required></label><label>Perfil<select name="role"><option>OPERADOR</option><option>SUPERVISOR</option><option>VISUALIZADOR</option><option>ADMIN</option></select></label><label class="permission-check"><input name="canDeleteLots" type="checkbox"> Permitir excluir lotes</label><button class="primary" type="submit">Criar usuário</button></div></form></dialog>
   <dialog id="collaboratorDialog" class="small-dialog"><form id="collaboratorForm"><div class="dialog-head"><h2>Colaborador</h2><button type="button" class="icon" data-close="collaboratorDialog">×</button></div><div class="stack-form"><label>Nome<input name="fullName" required></label><label>Tipo<input name="employmentType" value="DIARISTA" required></label><label>Horas por dia<input name="dailyHours" type="number" value="8" step="0.5" required></label><label>Comissão a cada 1.000 tijolos (R$)<input name="commission" type="number" value="10" step="0.01" required></label><label>Data de início<input name="startDate" type="date" required></label><button class="primary" type="submit">Salvar</button></div></form></dialog>
   <dialog id="attendanceDialog" class="small-dialog"><form id="attendanceForm"><div class="dialog-head"><h2>Registrar exceção de presença</h2><button type="button" class="icon" data-close="attendanceDialog">×</button></div><input type="hidden" name="collaboratorId"><div class="stack-form"><label>Data<input name="workDate" type="date" required></label><label>Turno<select name="shift"><option value="MANHA">Manhã</option><option value="TARDE">Tarde</option></select></label><label>Situação<select name="status"><option value="ABSENT">Não trabalhou</option><option value="OFF">Off / afastado</option><option value="PRESENT">Presente (correção)</option><option value="EXTRA">Trabalho extraordinário</option></select></label><label>Observação<textarea name="note"></textarea></label><button class="primary" type="submit">Salvar</button></div></form></dialog>
-  <dialog id="functionDialog" class="small-dialog"><form id="functionForm"><div class="dialog-head"><h2>Função</h2><button type="button" class="icon" data-close="functionDialog">×</button></div><div class="stack-form"><label>Nome<input name="name" required></label><label>Tipo<input name="type" value="PRODUCAO"></label><label>Horário inicial<input name="start" type="time"></label><label>Horário final<input name="end" type="time"></label><label>Observações<textarea name="notes"></textarea></label><button class="primary" type="submit">Salvar</button></div></form></dialog>
+  <dialog id="functionDialog" class="small-dialog"><form id="functionForm"><div class="dialog-head"><h2>Função</h2><button type="button" class="icon" data-close="functionDialog">×</button></div><div class="stack-form"><label>Nome<input name="name" required></label><label>Tipo<select name="type" required><option value="PRODUCAO">Produção</option><option value="ACUMULAVEL">Acumulável</option></select><small class="field-hint">Produção: apenas uma por colaborador/turno. Acumulável: pode coexistir com outras.</small></label><label>Horário inicial<input name="start" type="time"></label><label>Horário final<input name="end" type="time"></label><label>Observações<textarea name="notes"></textarea></label><button class="primary" type="submit">Salvar</button></div></form></dialog>
+  <dialog id="rotationDialog" class="small-dialog"><form id="rotationForm"><div class="dialog-head"><div><h2>Gerar rotação</h2><small>As funções de Produção serão distribuídas alternadamente.</small></div><button type="button" class="icon" data-close="rotationDialog">×</button></div><div class="stack-form"><label>Data inicial<input name="startDate" type="date" required></label><label>Quantidade de dias<input name="days" type="number" min="1" max="31" value="5" required></label><div><strong class="form-label">Acumular funções adicionais</strong><p class="field-hint">Opcional. As funções marcadas serão adicionadas junto à função de produção em cada turno gerado.</p><div id="rotationAccumFunctions" class="check-list"></div></div><button class="primary" type="submit">Gerar escala</button></div></form></dialog>
   <dialog id="soilDialog" class="small-dialog"><form id="soilForm"><div class="dialog-head"><h2>Nova terra</h2><button type="button" class="icon" data-close="soilDialog">×</button></div><div class="stack-form"><label>Código<input name="code" placeholder="T-02" required></label><label>Nome<input name="name" required></label><label>Origem<input name="origin" required></label><label>Areia (%)<input name="sand" type="number" min="0" max="100" step="0.1" required></label><label>Argila (%)<input name="clay" type="number" min="0" max="100" step="0.1" required></label><button class="primary" type="submit">Salvar</button></div></form></dialog>
   <dialog id="planDialog" class="small-dialog"><form id="planForm"><div class="dialog-head"><h2>Novo plano</h2><button type="button" class="icon" data-close="planDialog">×</button></div><div class="stack-form"><label>Código<input name="code" required></label><label>Nome<input name="name" required></label><label>Dias<input name="days" type="number" min="0" required></label><label>Horários separados por vírgula<input name="times" placeholder="08:00,16:00"></label><label>Descrição<textarea name="description"></textarea></label><button class="primary" type="submit">Salvar</button></div></form></dialog>
 
@@ -141,7 +147,7 @@
   <div id="loading" class="loading hidden"><div><span></span><strong>Aguarde...</strong><small id="loadingText">Atualizando dados</small></div></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="config.js?v=400"></script>
-  <script src="app.js?v=400"></script>
+  <script src="config.js?v=430"></script>
+  <script src="app.js?v=430"></script>
 </body>
 </html>
