@@ -2,3 +2,32 @@
 @media(max-width:950px){.app-shell{display:block}.sidebar{position:fixed;z-index:50;left:-245px;width:230px;transition:.2s}.sidebar.open{left:0}.menu-btn{display:block}.topbar{align-items:center}.ops-grid,.analytics-grid,.catalog-columns{grid-template-columns:1fr}.kpi-grid{grid-template-columns:repeat(2,1fr)}.cards-list,.employee-grid,.users-grid{grid-template-columns:repeat(2,1fr)}main{padding:18px}.schedule-shifts{grid-template-columns:1fr}}
 @media(max-width:600px){.topbar .primary{padding:9px;font-size:10px}.topbar h1{font-size:21px}.kpi-grid{grid-template-columns:1fr 1fr}.cards-list,.employee-grid,.users-grid{grid-template-columns:1fr}.form-grid{grid-template-columns:1fr}.span-2{grid-column:auto}.extra-row{grid-template-columns:1fr 1fr}.extra-row button{grid-column:span 2}.detail-grid{grid-template-columns:repeat(2,1fr)}.tasks-head,.section-head,.panel-head.responsive{flex-direction:column;align-items:stretch}.segmented{overflow:auto}.task-item{grid-template-columns:55px 1fr}.task-item button{grid-column:2}.ops-grid{display:flex;overflow-x:auto}.ops-grid>.panel{min-width:88vw}.kpi strong{font-size:20px}}
 @media print{.sidebar,.topbar,.dialog-actions,.icon{display:none!important}main{padding:0}.sheet-dialog{position:static!important;width:100%!important;max-height:none!important;box-shadow:none}.sheet-dialog::backdrop{display:none}}
+
+/* V8.2 - cadastro por traço */
+.recipe-summary{border:1px solid var(--line);background:#f7faf8;border-radius:14px;padding:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.recipe-code{font-size:18px;font-weight:900;color:var(--forest);padding:8px 12px;border-radius:10px;background:#e5f1ec}
+.recipe-parts{display:flex;gap:7px;flex:1;flex-wrap:wrap}
+.recipe-parts span{display:flex;align-items:center;gap:5px;padding:7px 9px;border-radius:9px;background:white;border:1px solid var(--line);font-size:11px;color:var(--muted)}
+.recipe-parts b{font-size:14px;color:var(--ink)}
+.recipe-summary>small{width:100%;font-size:9px;color:var(--muted)}
+.moisture-extra{display:block;margin-top:12px;max-width:360px}
+.muted-small{font-size:10px;color:var(--muted)}
+@media(max-width:600px){.recipe-summary{align-items:flex-start}.recipe-parts{width:100%}.recipe-parts span{flex:1;justify-content:center;min-width:90px}}
+
+/* TerraLote V8.3 — permissões, funções acumuláveis e calendário */
+.permission-check{display:flex!important;align-items:center;gap:8px;background:#f4f7f5;border:1px solid var(--line);padding:11px;border-radius:10px}
+.permission-check input{width:auto!important}
+.user-permission{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:9px 0;margin:8px 0;font-size:11px}
+.permission-toggle{border:1px solid var(--line);background:#f1f4f2;color:var(--muted);border-radius:999px;padding:6px 9px;font-size:9px;font-weight:900;cursor:pointer}
+.permission-toggle.on{background:#e1f1eb;color:#226b54;border-color:#cbe4da}
+.danger-action,.icon-danger{color:#a33f33!important;border-color:#ebd1cc!important;background:#fff!important}
+.icon-danger{width:30px;height:30px;border:1px solid #ebd1cc;border-radius:8px;font-size:17px;cursor:pointer}
+.catalog-card{display:flex;justify-content:space-between;gap:10px;align-items:center}
+.function-chip{display:inline-flex;align-items:center;gap:6px}.function-chip small{font-size:8px;opacity:.7}.function-chip.accum{background:#eaf0f5;color:#315f84}.function-chip button,.assignment-functions button{border:0;background:transparent;color:inherit;font-size:15px;line-height:1;cursor:pointer}
+.assignment.multi{align-items:flex-start}.assignment-functions{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}.assignment-functions>span{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:4px 7px;background:#e5f1ec;color:#215f50;font-size:9px}.assignment-functions>span.accum{background:#eaf0f5;color:#315f84}
+.check-list{display:grid;gap:7px;margin-top:8px}.check-list label{display:flex!important;align-items:center;gap:8px;border:1px solid var(--line);border-radius:9px;padding:8px;background:#fff}.check-list input{width:auto!important}
+.form-label{font-size:11px}.field-hint{display:block;color:var(--muted);font-size:9px;margin-top:4px}
+.team-overview-grid{display:grid;grid-template-columns:minmax(320px,.72fr) minmax(0,1.28fr);gap:14px;margin-top:14px}
+.dashboard-schedule{display:grid;gap:9px;max-height:410px;overflow:auto}.dash-schedule-day{border:1px solid var(--line);border-radius:12px;background:#fff;padding:10px}.dash-schedule-day>header{border-bottom:1px solid var(--line);padding-bottom:6px;margin-bottom:6px;text-transform:capitalize}.dash-schedule-day>div{display:grid;grid-template-columns:48px 1fr;gap:7px;padding:4px 0}.dash-schedule-day>div>small{font-size:8px;color:var(--muted);font-weight:900}.dash-schedule-day>div>div{display:grid;gap:3px}.dash-schedule-day span{font-size:9px}.dash-schedule-day b{margin-right:4px}
+.weekly-calendar-panel{overflow:hidden}.weekly-attendance{overflow-x:auto}.attendance-table{min-width:800px}.attendance-head,.attendance-row{display:grid;grid-template-columns:130px repeat(7,minmax(82px,1fr));border-bottom:1px solid var(--line)}.attendance-head{background:#f3f6f4}.attendance-head>span{padding:8px 6px;font-size:8px;font-weight:900;color:var(--muted);text-transform:capitalize}.attendance-row>strong{padding:10px 7px;font-size:10px}.attendance-day{border-left:1px solid var(--line);padding:5px;display:grid;gap:4px}.attendance-day>span{display:block;border-radius:7px;padding:5px;font-size:8px;font-weight:900;background:#e8f2ed;color:#276d58;min-height:25px}.attendance-day>span.bad{background:#fae6e2;color:#a23d31}.attendance-day>span.extra{background:#e7eef5;color:#315f84}.attendance-day>span.off{background:#f1f3f2;color:#87928e}.attendance-day small{display:block;font-size:7px;font-weight:500;margin-top:2px;line-height:1.2}
+@media(max-width:850px){.team-overview-grid{grid-template-columns:1fr}.weekly-calendar-panel{min-width:0}}
