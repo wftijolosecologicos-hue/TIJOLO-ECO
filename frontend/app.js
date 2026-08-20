@@ -1,588 +1,87 @@
-window.TERRALOTE_FRONTEND_VERSION='3.1.0';
-'use strict';
+const CFG=window.TERRALOTE_CONFIG||{};
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+if(!window.supabase) throw new Error('Biblioteca Supabase não carregada.');
+const sb=window.supabase.createClient(CFG.SUPABASE_URL,CFG.SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true}});
+const CACHE_KEY='terralote_v8_cache';
+const QUEUE_KEY='terralote_v8_queue';
+const APP={profile:null,lots:[],tasks:[],soils:[],plans:[],recipes:[],collaborators:[],attendance:[],functions:[],assignments:[],weeklyCommission:[],dailyProduction:[],taskFilter:'pending'};
 
-const CONFIG = window.TERRALOTE_CONFIG;
-const STORE = {
-  token: 'terralote_token_v2',
-  cache: 'terralote_cache_v2',
-  queue: 'terralote_queue_v2',
-  user: 'terralote_user_v2'
-};
-const APP = {
-  token: localStorage.getItem(STORE.token) || '',
-  user: JSON.parse(localStorage.getItem(STORE.user) || 'null'),
-  lots: [], soils: [], plans: [], tasks: [],
-  taskFilter: 'open', lastCreatedId: null, loadingCount: 0, dashboardPeriod: 30
-};
-const $ = s => document.querySelector(s);
-const $$ = s => [...document.querySelectorAll(s)];
-const esc = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-const num = v => Number(v || 0);
-const toISO = v => v ? new Date(v).toISOString() : '';
-const isValidDate = v => v && !Number.isNaN(new Date(v).getTime());
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
+function num(v){return Number(v||0)}
+function money(v){return new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(num(v))}
+function qty(v){return new Intl.NumberFormat('pt-BR',{maximumFractionDigits:1}).format(num(v))}
+function dateBR(v,withTime=false){if(!v)return '—';const d=new Date(v);return new Intl.DateTimeFormat('pt-BR',withTime?{dateStyle:'short',timeStyle:'short'}:{dateStyle:'short'}).format(d)}
+function toast(msg,error=false){const t=$('#toast');t.textContent=msg;t.className='toast show'+(error?' error':'');setTimeout(()=>t.className='toast',3200)}
+function loading(show,text='Atualizando dados'){const el=$('#loading');$('#loadingText').textContent=text;el.classList.toggle('hidden',!show)}
+function isAdmin(){return APP.profile?.role==='ADMIN'}
+function saveCache(){localStorage.setItem(CACHE_KEY,JSON.stringify({at:new Date().toISOString(),lots:APP.lots,tasks:APP.tasks,soils:APP.soils,plans:APP.plans,recipes:APP.recipes,collaborators:APP.collaborators,attendance:APP.attendance,functions:APP.functions,assignments:APP.assignments,weeklyCommission:APP.weeklyCommission,dailyProduction:APP.dailyProduction}))}
+function loadCache(){try{const c=JSON.parse(localStorage.getItem(CACHE_KEY)||'null');if(!c)return false;Object.assign(APP,c);return true}catch{return false}}
+function weekStartSunday(d=new Date()){const x=new Date(d);x.setHours(0,0,0,0);x.setDate(x.getDate()-x.getDay());return x}
+function mixProfile(soil,sand,cement){const r=APP.recipes.find(x=>x.is_default)||APP.recipes[0];if(!r)return {label:'Traço personalizado',eq:null,expected:null};const ratios=[soil/num(r.soil_buckets_full),sand/num(r.sand_buckets_full),cement/num(r.cement_buckets_full)].filter(Number.isFinite);const eq=ratios.reduce((a,b)=>a+b,0)/ratios.length;const deviation=Math.max(...ratios.map(x=>Math.abs(x-eq)));const ok=deviation<=0.08;const ymin=num(r.yield_min_full)*eq,ymax=num(r.yield_max_full)*eq;return {label:ok?(Math.abs(eq-.5)<.08?'½ betoneira':Math.abs(eq-1)<.08?'1 betoneira':`${eq.toFixed(2)} betoneira(s)`):'Traço personalizado',eq:ok?eq:null,expected:ok?`${Math.round(ymin)}-${Math.round(ymax)} tijolos`:null,code:r.code}}
+function lotProgress(l){const start=new Date(l.manufactured_at).getTime(),end=new Date(l.cure_due_at).getTime();if(!start||!end||end<=start)return 0;return Math.max(0,Math.min(100,Math.round((Date.now()-start)/(end-start)*100)))}
+function operationalStatus(l){if(l.operational_status)return l.operational_status;if(l.status==='COMPLETED')return 'COMPLETED';const overdue=APP.tasks.some(t=>t.lot_id===l.id&&t.status==='PENDING'&&new Date(t.scheduled_at)<new Date());return overdue?'OVERDUE':'CURING'}
+function statusLabel(s){return ({COMPLETED:'Concluído',OVERDUE:'Com pendência',CURING:'Em cura',DELETED:'Excluído'})[s]||s}
+function shiftLabel(s){return s==='MANHA'?'Manhã':'Tarde'}
 
-function dateBR(v, withTime=true){
-  if(!isValidDate(v)) return '—';
-  return new Intl.DateTimeFormat('pt-BR', withTime ? {dateStyle:'short',timeStyle:'short'} : {dateStyle:'short'}).format(new Date(v));
-}
-function dayDiff(a,b=new Date()){return Math.max(0,Math.floor((new Date(b)-new Date(a))/86400000));}
-function cureProgress(l){return Math.min(100,Math.max(0,Math.round(dayDiff(l.manufacturedAt)/Math.max(1,num(l.cureDays))*100)));}
-function cureEnd(l){return new Date(new Date(l.manufacturedAt).getTime()+num(l.cureDays)*86400000);}
-function lotTasks(l){return APP.tasks.filter(t=>t.lotId===l.id&&!t.deletedAt);}
-function pendingLotTasks(l){return lotTasks(l).filter(t=>String(t.status).toUpperCase()!=='DONE');}
-function lotStatus(l){
-  const cureDone=cureProgress(l)>=100;
-  const pending=pendingLotTasks(l);
-  if(cureDone && pending.length===0)return 'COMPLETED';
-  if(pending.some(t=>new Date(t.scheduledAt)<new Date()))return 'OVERDUE';
-  return 'CURING';
-}
-function lotStatusLabel(l){return ({COMPLETED:'Concluído',OVERDUE:'Com pendência',CURING:'Em andamento'})[lotStatus(l)]||'Em andamento';}
-function lotOverallProgress(l){
-  const cure=cureProgress(l), tasks=lotTasks(l), done=tasks.filter(t=>String(t.status).toUpperCase()==='DONE').length;
-  const taskPct=tasks.length?Math.round(done/tasks.length*100):100;
-  return Math.round(cure*.7+taskPct*.3);
-}
-function formatQty(v){return num(v).toLocaleString('pt-BR',{maximumFractionDigits:2});}
-function formatMix(l){
-  const extra=l.extraName?` + ${formatQty(l.extraQty)}${l.extraUnit||''} ${l.extraName}`:'';
-  return `${formatQty(l.soilKg)}kg terra + ${formatQty(l.sandKg)}kg areia + ${formatQty(l.cementKg)}kg ${esc(l.cementType)}${extra}`;
-}
-function saveCache(){
-  const data={lots:APP.lots,soils:APP.soils,plans:APP.plans,tasks:APP.tasks,savedAt:new Date().toISOString()};
-  localStorage.setItem(STORE.cache,JSON.stringify(data));
-}
-function loadCache(){
-  const c=JSON.parse(localStorage.getItem(STORE.cache)||'null');
-  if(!c)return false;
-  APP.lots=c.lots||[];APP.soils=c.soils||[];APP.plans=c.plans||[];APP.tasks=c.tasks||[];
-  return true;
-}
-function toast(message,error=false){const el=$('#toast');el.textContent=message;el.className=`toast show${error?' error':''}`;clearTimeout(el._t);el._t=setTimeout(()=>el.className='toast',3200);}
-function setBusy(button,busy,label='Aguarde...'){if(!button)return; if(busy){button.dataset.old=button.textContent;button.textContent=label;button.disabled=true;button.classList.add('is-loading')}else{button.textContent=button.dataset.old||button.textContent;button.disabled=false;button.classList.remove('is-loading')}}
-function showLoading(title='Aguarde, estamos atualizando os dados',subtitle='Isso pode levar alguns segundos.'){APP.loadingCount++;$('#loadingTitle').textContent=title;$('#loadingSubtitle').textContent=subtitle;$('#loadingOverlay').classList.remove('hidden')}
-function hideLoading(){APP.loadingCount=Math.max(0,APP.loadingCount-1);if(APP.loadingCount===0)$('#loadingOverlay').classList.add('hidden')}
-function closeDialog(id){const d=$(id);if(d&&d.open)d.close()}
-function successAndClose(dialogId,message){closeDialog(dialogId);toast(message)}
+async function getProfile(){const {data:{user}}=await sb.auth.getUser();if(!user)return null;const {data,error}=await sb.from('profiles').select('*').eq('id',user.id).single();if(error)throw error;if(data.status!=='ACTIVE'){await sb.auth.signOut();throw new Error('Seu acesso está suspenso. Fale com o administrador.')}APP.profile=data;return data}
+async function login(e){e.preventDefault();const f=new FormData(e.currentTarget),login=String(f.get('login')).trim(),password=String(f.get('password'));$('#loginMessage').textContent='';loading(true,'Validando seu acesso');try{let email=login;if(!login.includes('@')){const {data,error}=await sb.rpc('resolve_login_email',{p_login:login});if(error)throw error;if(!data)throw new Error('Usuário não encontrado ou suspenso.');email=data}const {error}=await sb.auth.signInWithPassword({email,password});if(error)throw new Error('Usuário ou senha incorretos.');await getProfile();showApp();await bootstrap()}catch(err){$('#loginMessage').textContent=err.message;await sb.auth.signOut()}finally{loading(false)}}
+async function logout(){await sb.auth.signOut();APP.profile=null;$('#appShell').classList.add('hidden');$('#loginScreen').classList.remove('hidden');$('#loginForm').reset();toast('Você saiu do sistema.')}
+function showApp(){$('#loginScreen').classList.add('hidden');$('#appShell').classList.remove('hidden');$('#userName').textContent=APP.profile.full_name;$('#userRole').textContent=APP.profile.role;$('#userInitial').textContent=APP.profile.full_name.charAt(0).toUpperCase();$$('.admin-only').forEach(x=>x.classList.toggle('hidden',!isAdmin()));$('#lotResponsible').textContent=APP.profile.full_name}
 
-async function api(type,payload={}){
-  if(!navigator.onLine) throw new Error('Sem conexão com a internet.');
-  const response=await fetch(CONFIG.API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({type,token:APP.token,...payload})});
-  if(!response.ok)throw new Error(`Falha de comunicação (${response.status}).`);
-  const data=await response.json();
-  if(!data.ok){
-    if(data.code==='UNAUTHORIZED') logout(false);
-    throw new Error(data.error||'Não foi possível concluir a operação.');
-  }
-  return data.result;
-}
-async function bootstrap(){
-  const hadCache=loadCache();
-  if(hadCache)renderAll();
-  showLoading('Aguarde, estamos atualizando os dados','Buscando terras, planos, lotes e pendências mais recentes.');
-  try{
-    const result=await api('GET_BOOTSTRAP');
-    APP.lots=result.lots||[];APP.soils=result.soils||[];APP.plans=result.plans||[];APP.tasks=result.tasks||[];
-    if(result.user){APP.user=result.user;localStorage.setItem(STORE.user,JSON.stringify(APP.user));}
-    saveCache();renderAll();
-  }catch(err){
-    if(hadCache){toast('Não foi possível atualizar agora. Exibindo os últimos dados salvos.',true);}
-    else throw err;
-  }finally{hideLoading();}
-}
+async function bootstrap(){if(loadCache())renderAll();loading(true,'Sincronizando dados com o Supabase');try{const [lots,tasks,soils,plans,recipes,collabs,attendance,funcs,assignments,comm,daily]=await Promise.all([
+ sb.from('v_lot_operational').select('*').is('deleted_at',null).order('manufactured_at',{ascending:false}),
+ sb.from('watering_tasks').select('*,lots!inner(lot_code,responsible_snapshot)').order('scheduled_at'),
+ sb.from('soils').select('*').eq('active',true).order('code'),
+ sb.from('watering_plans').select('*').eq('active',true).order('system_plan',{ascending:false}),
+ sb.from('mix_recipes').select('*').eq('active',true).order('is_default',{ascending:false}),
+ sb.from('collaborators').select('*').order('full_name'),
+ sb.from('attendance_exceptions').select('*').gte('work_date',new Date(Date.now()-21*864e5).toISOString().slice(0,10)).order('work_date'),
+ sb.from('work_functions').select('*').eq('active',true).order('name'),
+ sb.from('function_assignments').select('*,collaborators(full_name),work_functions(name)').gte('work_date',new Date(Date.now()-7*864e5).toISOString().slice(0,10)).lte('work_date',new Date(Date.now()+14*864e5).toISOString().slice(0,10)).order('work_date'),
+ sb.from('v_weekly_commission').select('*').gte('cycle_start_sunday',weekStartSunday().toISOString().slice(0,10)),
+ sb.from('v_daily_production').select('*').gte('manufacture_date',new Date(Date.now()-30*864e5).toISOString().slice(0,10)).order('manufacture_date')
+]);
+ for(const r of [lots,tasks,soils,plans,recipes,collabs,attendance,funcs,assignments,comm,daily])if(r.error)throw r.error;
+ APP.lots=lots.data||[];APP.tasks=(tasks.data||[]).map(t=>({...t,lot_code:t.lots?.lot_code,responsible:t.lots?.responsible_snapshot}));APP.soils=soils.data||[];APP.plans=plans.data||[];APP.recipes=recipes.data||[];APP.collaborators=collabs.data||[];APP.attendance=attendance.data||[];APP.functions=funcs.data||[];APP.assignments=assignments.data||[];APP.weeklyCommission=comm.data||[];APP.dailyProduction=daily.data||[];saveCache();renderAll();await flushQueue()}catch(err){toast('Não foi possível atualizar tudo. Exibindo dados salvos quando disponíveis.',true);console.error(err)}finally{loading(false)}}
 
-async function login(e){
-  e.preventDefault();
-  const button=e.submitter, form=new FormData(e.currentTarget);
-  setBusy(button,true,'Entrando...');$('#loginMessage').textContent='';
-  showLoading('Entrando no TerraLote','Validando o acesso e preparando os dados.');
-  try{
-    const result=await api('LOGIN',{username:String(form.get('username')).trim(),password:String(form.get('password'))});
-    APP.token=result.token;APP.user=result.user;
-    localStorage.setItem(STORE.token,APP.token);localStorage.setItem(STORE.user,JSON.stringify(APP.user));
-    showApp();await bootstrap();
-  }catch(err){$('#loginMessage').textContent=err.message;}
-  finally{hideLoading();setBusy(button,false);}
-}
-function showApp(){
-  $('#loginScreen').classList.add('hidden');$('#appShell').classList.remove('hidden');
-  const name=APP.user?.name||'Operador';$('#accountName').textContent=name;$('#accountInitial').textContent=name.charAt(0).toUpperCase();
-  $('#accountDialogName').textContent=name;$('#accountDialogEmail').textContent=APP.user?.email||'';
-}
-function logout(showMessage=true){
-  APP.token='';APP.user=null;localStorage.removeItem(STORE.token);localStorage.removeItem(STORE.user);
-  $$('dialog[open]').forEach(d=>d.close());
-  $('#appShell').classList.add('hidden');$('#loginScreen').classList.remove('hidden');
-  const form=$('#loginForm');if(form)form.reset();
-  setTimeout(()=>form?.querySelector('[name=username]')?.focus(),50);
-  if(showMessage)toast('Você saiu do sistema com sucesso.');
-}
+function renderAll(){renderDashboard();renderLots();renderTasks();renderCollaborators();renderSchedule();renderCatalog();populateLotOptions();if(isAdmin())loadUsers()}
+function renderDashboard(){const week=weekStartSunday(),weekStr=week.toISOString().slice(0,10);const weekProd=APP.dailyProduction.filter(x=>x.manufacture_date>=weekStr).reduce((s,x)=>s+num(x.bricks),0);const open=APP.tasks.filter(t=>t.status==='PENDING');$('#kpiWeek').textContent=qty(weekProd);$('#kpiLots').textContent=APP.lots.filter(l=>operationalStatus(l)!=='COMPLETED').length;$('#kpiTasks').textContent=open.length;$('#pendingBadge').textContent=open.length;$('#kpiCommission').textContent=money(APP.weeklyCommission.reduce((s,x)=>s+num(x.commission_value),0));
+ $('#dashboardLots').innerHTML=APP.lots.filter(l=>operationalStatus(l)!=='COMPLETED').slice(0,6).map(l=>`<article class="trace-card ${operationalStatus(l).toLowerCase()}" data-lot="${l.id}"><header><div><strong>${esc(l.lot_code)}</strong><small>${esc(l.responsible_snapshot)}</small></div><span class="badge ${operationalStatus(l).toLowerCase()}">${statusLabel(operationalStatus(l))}</span></header><div class="progress"><i style="width:${lotProgress(l)}%"></i></div><small>${lotProgress(l)}% da cura · ${l.pending_tasks||0} pendência(s)</small></article>`).join('')||'<div>Nenhum lote em andamento.</div>';
+ const urgent=open.slice().sort((a,b)=>new Date(a.scheduled_at)-new Date(b.scheduled_at)).slice(0,6);$('#dashboardTasks').innerHTML=urgent.map(t=>`<article class="priority-card"><time>${dateBR(t.scheduled_at,true)}</time><div><strong>${esc(t.lot_code)}</strong><small>${esc(t.responsible)}</small></div><button data-confirm-task="${t.id}">✓</button></article>`).join('')||'<div>Nenhuma prioridade aberta.</div>';
+ const last14=[];for(let i=13;i>=0;i--){const d=new Date();d.setDate(d.getDate()-i);const key=d.toISOString().slice(0,10),val=APP.dailyProduction.filter(x=>x.manufacture_date===key).reduce((s,x)=>s+num(x.bricks),0);last14.push([key,val])}const max=Math.max(1,...last14.map(x=>x[1]));$('#productionChart').innerHTML=last14.map(([d,v])=>`<div class="bar-col"><i style="height:${Math.max(4,v/max*170)}px"><title>${d}: ${v}</title></i><small>${d.slice(8)}</small></div>`).join('');const cmax=Math.max(1,...APP.weeklyCommission.map(x=>num(x.commission_value)));$('#commissionChart').innerHTML=APP.weeklyCommission.map(x=>`<div class="commission-row"><header><span>${esc(x.full_name)}</span><strong>${money(x.commission_value)}</strong></header><div class="progress"><i style="width:${num(x.commission_value)/cmax*100}%"></i></div><small>${qty(x.eligible_bricks)} tijolos elegíveis</small></div>`).join('')||'<div>Sem produção elegível no ciclo atual.</div>'}
+function renderLots(filter=$('#lotSearch')?.value||''){const q=filter.toLowerCase();$('#lotsList').innerHTML=APP.lots.filter(l=>JSON.stringify(l).toLowerCase().includes(q)).map(l=>`<article class="lot-card" data-lot="${l.id}"><header><div><strong>${esc(l.lot_code)}</strong><small>${dateBR(l.manufactured_at,true)} · ${shiftLabel(l.shift)}</small></div><span class="badge ${operationalStatus(l).toLowerCase()}">${statusLabel(operationalStatus(l))}</span></header><p>${qty(l.quantity)} tijolos · ${esc(l.soil_name)} · ${esc(l.cement_type)}</p><div class="progress"><i style="width:${lotProgress(l)}%"></i></div><small>${lotProgress(l)}% da cura · Responsável: ${esc(l.responsible_snapshot)}</small></article>`).join('')||'<div>Nenhum lote encontrado.</div>'}
+function renderTasks(){const now=new Date();let rows=APP.tasks;if(APP.taskFilter==='pending')rows=rows.filter(x=>x.status==='PENDING');if(APP.taskFilter==='done')rows=rows.filter(x=>x.status==='DONE');const groups={};rows.forEach(t=>{const k=new Date(t.scheduled_at).toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long'});(groups[k]??=[]).push(t)});$('#tasksList').innerHTML=Object.entries(groups).map(([day,items])=>`<section class="task-day"><h3>${day}</h3>${items.map(t=>{const overdue=t.status==='PENDING'&&new Date(t.scheduled_at)<now;return`<article class="task-item ${overdue?'overdue':''} ${t.status==='DONE'?'done':''}"><time>${new Date(t.scheduled_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</time><div><strong>${esc(t.lot_code)}</strong><small>${esc(t.responsible)}</small></div>${t.status==='DONE'?'<span>✓ Confirmada</span>':`<button data-confirm-task="${t.id}">Confirmar</button>`}</article>`}).join('')}</section>`).join('')||'<div>Nenhuma tarefa nesta categoria.</div>'}
+function renderCollaborators(){const cycle=weekStartSunday().toISOString().slice(0,10);const total=APP.weeklyCommission.reduce((s,x)=>s+num(x.commission_value),0);$('#collaboratorSummary').innerHTML=`<article class="kpi"><small>Ciclo iniciado</small><strong>${dateBR(cycle)}</strong><span>domingo</span></article><article class="kpi"><small>Colaboradores ativos</small><strong>${APP.collaborators.filter(x=>x.status==='ACTIVE').length}</strong><span>equipe</span></article><article class="kpi"><small>Comissão acumulada</small><strong>${money(total)}</strong><span>ciclo atual</span></article><article class="kpi"><small>Regra</small><strong>R$ 10</strong><span>por 1.000 tijolos / pessoa</span></article>`;$('#collaboratorsList').innerHTML=APP.collaborators.map(c=>{const wc=APP.weeklyCommission.find(x=>x.collaborator_id===c.id);const ex=APP.attendance.filter(x=>x.collaborator_id===c.id).slice(-4);return`<article class="employee-card"><header><div><strong>${esc(c.full_name)}</strong><small>${esc(c.employment_type)} · ${c.daily_hours}h/dia</small></div><span class="badge ${c.status==='ACTIVE'?'active':'suspended'}">${c.status}</span></header><div class="metric-row"><div class="metric"><small>Tijolos elegíveis</small><strong>${qty(wc?.eligible_bricks||0)}</strong></div><div class="metric"><small>Comissão</small><strong>${money(wc?.commission_value||0)}</strong></div></div><small>Exceções recentes: ${ex.length}</small>${isAdmin()?`<div class="employee-actions"><button data-attendance="${c.id}">Presença/ausência</button><button data-off="${c.id}">Off por período</button><button data-toggle-collab="${c.id}">${c.status==='ACTIVE'?'Suspender':'Reativar'}</button></div>`:''}</article>`}).join('')}
+function renderSchedule(){const days={};APP.assignments.forEach(a=>{(days[a.work_date]??={MANHA:[],TARDE:[]})[a.shift].push(a)});$('#functionsList').innerHTML=APP.functions.map(f=>`<span class="function-chip">${esc(f.name)}</span>`).join('');$('#scheduleList').innerHTML=Object.entries(days).map(([d,sh])=>`<section class="schedule-day"><h3>${new Date(d+'T12:00').toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long'})}</h3><div class="schedule-shifts"><div class="schedule-shift"><h4>Manhã</h4>${sh.MANHA.map(a=>`<div class="assignment"><strong>${esc(a.collaborators?.full_name)}</strong><span>${esc(a.work_functions?.name)}</span></div>`).join('')||'—'}</div><div class="schedule-shift"><h4>Tarde</h4>${sh.TARDE.map(a=>`<div class="assignment"><strong>${esc(a.collaborators?.full_name)}</strong><span>${esc(a.work_functions?.name)}</span></div>`).join('')||'—'}</div></div></section>`).join('')||'<div>Nenhuma escala gerada.</div>'}
+function renderCatalog(){if(!isAdmin())return;$('#soilsList').innerHTML=APP.soils.map(s=>`<div class="catalog-card"><strong>${esc(s.code)} · ${esc(s.name)}</strong><small>${esc(s.origin)} · ${s.sand_pct}% areia / ${s.clay_pct}% argila</small></div>`).join('');$('#plansList').innerHTML=APP.plans.map(p=>`<div class="catalog-card"><strong>${esc(p.name)}</strong><small>${p.days} dia(s) · ${(p.times||[]).join(', ')||'sem horários'}</small></div>`).join('')}
+function populateLotOptions(){$('#lotSoil').innerHTML=APP.soils.map(s=>`<option value="${s.id}">${esc(s.code)} · ${esc(s.name)} · ${esc(s.origin)}</option>`).join('');$('#wateringPlan').innerHTML=APP.plans.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('');updateMixProfile()}
 
-function renderAll(){renderDashboard();renderLots();renderTasks();renderCatalogs();fillSelects();updateAccount();}
-function updateAccount(){
-  const n=APP.user?.name||'Operador';$('#accountName').textContent=n;$('#accountInitial').textContent=n[0]?.toUpperCase()||'O';
-  $('#accountDialogName').textContent=n;$('#accountDialogEmail').textContent=APP.user?.email||'';const u=$('#passwordForm [name=newUsername]');if(u&&!u.value)u.value=APP.user?.username||'';
-}
-function pendingTasks(){return APP.tasks.filter(t=>t.status!=='DONE'&&!t.deletedAt).sort((a,b)=>new Date(a.scheduledAt)-new Date(b.scheduledAt));}
-function priorityTasks(){const limit=new Date();limit.setHours(23,59,59,999);return pendingTasks().filter(t=>new Date(t.scheduledAt)<=limit);}
-function renderDashboard(){
-  const active=APP.lots.filter(l=>!l.deletedAt&&lotStatus(l)==='CURING').length;
-  const lots=APP.lots.filter(l=>!l.deletedAt);
-  $('#kpiActive').textContent=active;$('#kpiPending').textContent=priorityTasks().length;$('#kpiBricks').textContent=lots.reduce((s,l)=>s+num(l.quantity),0).toLocaleString('pt-BR');$('#navPendingBadge').textContent=pendingTasks().length;
-  $('#lotProgress').innerHTML=lots.length?lots.slice().sort((a,b)=>new Date(b.manufacturedAt)-new Date(a.manufacturedAt)).slice(0,8).map(l=>lotProgressCard(l)).join(''):'<div class="empty">Nenhum lote cadastrado.</div>';
-  $('#nextTasks').innerHTML=taskCards(priorityTasks().slice(0,7),true);
-  const byCement={};lots.forEach(l=>byCement[l.cementType]=(byCement[l.cementType]||0)+num(l.quantity));const max=Math.max(1,...Object.values(byCement));
-  $('#mixChart').innerHTML=Object.keys(byCement).length?Object.entries(byCement).map(([k,v])=>`<div class="bar-group"><strong>${formatQty(v)}</strong><div class="bar" style="height:${Math.max(18,v/max*155)}px"></div><small>${esc(k)}</small></div>`).join(''):'<div class="empty">Os gráficos aparecerão após o cadastro dos lotes.</div>';
-  const ready=lots.filter(l=>lotStatus(l)==='READY').length, curing=lots.length-ready;
-  const late=pendingTasks().filter(t=>new Date(t.scheduledAt)<new Date()).length;
-  $('#statusSummary').innerHTML=[['#c9841c','Em cura',curing],['#26765e','Cura concluída',ready],['#bf493b','Molhações atrasadas',late],['#1d5b4c','Terras cadastradas',APP.soils.filter(s=>!s.deletedAt).length]].map(x=>`<div class="summary-row"><i class="summary-dot" style="background:${x[0]}"></i><div><strong>${x[1]}</strong><span>Atualizado agora</span></div><b>${x[2]}</b></div>`).join('');
-}
-function lotProgressCard(l){const p=cureProgress(l),ready=p>=100;return `<article class="lot-card" data-lot="${esc(l.id)}"><div class="lot-card-top"><div><span class="lot-code">${esc(l.lotCode)}</span><span class="lot-responsible">${esc(l.responsible)}</span></div><span class="progress-number">${p}%</span></div><div class="progress-track"><div class="progress-fill" style="width:${p}%"></div></div><div class="lot-meta"><span>${Math.min(dayDiff(l.manufacturedAt),num(l.cureDays))} de ${l.cureDays} dias</span><span>${ready?'Cura concluída':`${Math.max(0,num(l.cureDays)-dayDiff(l.manufacturedAt))} dias restantes`}</span></div></article>`;}
+function setDefaultLot(){const d=new Date(),local=new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);$('#lotForm [name=manufacturedAt]').value=local;$('#lotForm [name=shift]').value=d.getHours()<12?'MANHA':'TARDE';$('#lotForm [name=soilBuckets]').value='4.5';$('#lotForm [name=sandBuckets]').value='0.5';$('#lotForm [name=cementBuckets]').value='0.5';$('#lotForm [name=cementType]').value='CP II';$('#lotForm [name=plasticWrapped]').value='YES';$('#lotForm [name=cureDays]').value='28';$('#hasExtra').value='NO';$('#extrasWrap').classList.add('hidden');$('#wateringField').classList.add('hidden');$('#extrasList').innerHTML='';updateMixProfile()}
+function updateMixProfile(){const p=mixProfile(num($('#lotForm [name=soilBuckets]')?.value),num($('#lotForm [name=sandBuckets]')?.value),num($('#lotForm [name=cementBuckets]')?.value));$('#mixProfileBox').innerHTML=`<strong>Perfil do traço: ${esc(p.label)}</strong>${p.code?` · referência ${esc(p.code)}`:''}${p.expected?`<br><span>Rendimento estimado: ${p.expected}</span>`:''}`}
+function addExtraRow(){const row=document.createElement('div');row.className='extra-row';row.innerHTML='<input class="extra-name" placeholder="Material (ex.: pó de brita)" required><input class="extra-qty" type="number" step="0.01" min="0.01" placeholder="Qtd." required><select class="extra-unit"><option value="BALDE_18L">Balde 18 L</option><option value="KG">kg</option><option value="L">L</option><option value="G">g</option><option value="ML">mL</option><option value="OUTRO">Outro</option></select><button type="button">×</button>';row.querySelector('button').onclick=()=>row.remove();$('#extrasList').appendChild(row)}
+async function submitLot(e){e.preventDefault();const f=new FormData(e.currentTarget),extras=$$('.extra-row').map(r=>({material_name:r.querySelector('.extra-name').value.trim(),quantity:num(r.querySelector('.extra-qty').value),unit:r.querySelector('.extra-unit').value}));const payload={manufactured_at:new Date(f.get('manufacturedAt')).toISOString(),shift:f.get('shift'),quantity:num(f.get('quantity')),soil_id:f.get('soilId'),recipe_id:(APP.recipes.find(x=>x.is_default)||{}).id||null,soil_buckets:num(f.get('soilBuckets')),sand_buckets:num(f.get('sandBuckets')),cement_buckets:num(f.get('cementBuckets')),cement_type:String(f.get('cementType')).trim(),moisture_coefficient:num(f.get('moisture')),plastic_wrapped:f.get('plasticWrapped')==='YES',watering_plan_id:f.get('plasticWrapped')==='NO'?f.get('wateringPlanId'):null,cure_days:num(f.get('cureDays')),responsible_snapshot:APP.profile.full_name,created_by:APP.profile.id,notes:String(f.get('notes')||'').trim()||null};loading(true,'Salvando lote');try{const {data,error}=await sb.from('lots').insert(payload).select().single();if(error)throw error;if(extras.length){const {error:e2}=await sb.from('lot_extra_materials').insert(extras.map(x=>({...x,lot_id:data.id})));if(e2)throw e2}$('#lotDialog').close();toast(`Lote ${data.lot_code} criado com sucesso.`);await bootstrap();showLotDetail(data.id)}catch(err){if(!navigator.onLine){queueOperation({type:'CREATE_LOT',payload,extras});$('#lotDialog').close();toast('Sem internet: lote salvo na fila para sincronização.')}else toast(err.message,true)}finally{loading(false)}}
+function queueOperation(op){const q=JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]');q.push({...op,queued_at:new Date().toISOString()});localStorage.setItem(QUEUE_KEY,JSON.stringify(q))}
+async function flushQueue(){if(!navigator.onLine)return;const q=JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]'),remaining=[];for(const op of q){try{if(op.type==='CREATE_LOT'){const {data,error}=await sb.from('lots').insert(op.payload).select().single();if(error)throw error;if(op.extras?.length)await sb.from('lot_extra_materials').insert(op.extras.map(x=>({...x,lot_id:data.id})))}if(op.type==='CONFIRM_TASK'){const {error}=await sb.from('watering_tasks').update(op.payload).eq('id',op.id);if(error)throw error}}catch{remaining.push(op)}}localStorage.setItem(QUEUE_KEY,JSON.stringify(remaining))}
+async function confirmTask(id){const payload={status:'DONE',executed_at:new Date().toISOString(),executed_by:APP.profile.id,executed_by_name:APP.profile.full_name};try{const {error}=await sb.from('watering_tasks').update(payload).eq('id',id);if(error)throw error;toast('Ação confirmada.');await bootstrap()}catch(err){if(!navigator.onLine){queueOperation({type:'CONFIRM_TASK',id,payload});toast('Confirmação salva offline e será sincronizada.')}else toast(err.message,true)}}
+async function showLotDetail(id){const l=APP.lots.find(x=>x.id===id)|| (await sb.from('v_lot_operational').select('*').eq('id',id).single()).data;if(!l)return;const {data:extras}=await sb.from('lot_extra_materials').select('*').eq('lot_id',id);const p=mixProfile(num(l.soil_buckets),num(l.sand_buckets),num(l.cement_buckets));$('#detailContent').innerHTML=`<div class="dialog-head"><div><p class="eyebrow">RASTREABILIDADE</p><h2>${esc(l.lot_code)}</h2></div><button class="icon" data-close="detailDialog">×</button></div><div class="detail-grid"><div class="detail-cell"><small>Fabricação</small><strong>${dateBR(l.manufactured_at,true)}</strong></div><div class="detail-cell"><small>Turno</small><strong>${shiftLabel(l.shift)}</strong></div><div class="detail-cell"><small>Produção</small><strong>${qty(l.quantity)}</strong></div><div class="detail-cell"><small>Responsável</small><strong>${esc(l.responsible_snapshot)}</strong></div><div class="detail-cell"><small>Terra</small><strong>${esc(l.soil_code||'')}</strong></div><div class="detail-cell"><small>Cura</small><strong>${l.cure_days} dias</strong></div></div><h3>Traço</h3><p><strong>${p.label}</strong> · Terra ${l.soil_buckets} balde(s) · Areia ${l.sand_buckets} · Cimento ${l.cement_buckets} (${esc(l.cement_type)})</p>${extras?.length?`<h3>Materiais extras</h3><p>${extras.map(x=>`${esc(x.material_name)}: ${x.quantity} ${esc(x.unit)}`).join(' · ')}</p>`:''}<p>Plástico-filme: <strong>${l.plastic_wrapped?'SIM':'NÃO'}</strong> · Umidade: <strong>${l.moisture_coefficient}</strong></p><div class="dialog-actions"><button class="secondary" onclick="window.print()">Imprimir</button>${isAdmin()?`<button class="secondary" data-delete-lot="${l.id}">Excluir lote</button>`:''}</div>`;$('#detailDialog').showModal()}
+async function deleteLot(id){if(!isAdmin()||!confirm('Excluir este lote? O registro ficará marcado como excluído.'))return;const {error}=await sb.from('lots').update({deleted_at:new Date().toISOString(),status:'DELETED'}).eq('id',id);if(error)return toast(error.message,true);$('#detailDialog').close();toast('Lote excluído.');bootstrap()}
 
-function renderLots(filter=$('#lotSearch')?.value||''){
-  const q=filter.trim().toLowerCase();const lots=APP.lots.filter(l=>!l.deletedAt&&JSON.stringify(l).toLowerCase().includes(q)).sort((a,b)=>new Date(b.manufacturedAt)-new Date(a.manufacturedAt));
-  $('#lotsTable').innerHTML=lots.map(l=>`<tr data-lot="${esc(l.id)}"><td><strong>${esc(l.lotCode)}</strong></td><td>${dateBR(l.manufacturedAt)}</td><td>${formatQty(l.quantity)}</td><td>${formatMix(l)}</td><td>${esc(l.responsible)}</td><td>${cureProgress(l)}%</td><td><div class="row-actions"><button class="mini-btn" data-print="${esc(l.id)}">Imprimir</button><button class="mini-btn delete" data-delete-lot="${esc(l.id)}">Excluir</button></div></td></tr>`).join('');
-  $('#lotsCards').innerHTML=lots.length?lots.map(l=>`<article class="lot-list-card" data-lot="${esc(l.id)}"><div class="lot-list-card-head"><div><strong>${esc(l.lotCode)}</strong><small class="lot-responsible">${esc(l.responsible)}</small></div><span class="badge ${lotStatus(l)==='READY'?'ready':'active'}">${lotStatus(l)==='READY'?'Cura concluída':'Em cura'}</span></div><div class="lot-list-card-grid"><div><small>Fabricação</small><strong>${dateBR(l.manufacturedAt)}</strong></div><div><small>Quantidade</small><strong>${formatQty(l.quantity)}</strong></div><div><small>Cura</small><strong>${cureProgress(l)}% · ${l.cureDays} dias</strong></div><div><small>Terra</small><strong>${esc(l.soilName||l.soilId)}</strong></div></div><div class="lot-list-actions"><button class="mini-btn" data-print="${esc(l.id)}">Imprimir</button><button class="mini-btn delete" data-delete-lot="${esc(l.id)}">Excluir</button></div></article>`).join(''):'<div class="empty">Nenhum lote encontrado.</div>';
-}
+async function loadUsers(){try{const {data:{session}}=await sb.auth.getSession();const r=await fetch(`${CFG.SUPABASE_URL}/functions/v1/admin-users`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${session.access_token}`,'apikey':CFG.SUPABASE_PUBLISHABLE_KEY},body:JSON.stringify({action:'list'})});const j=await r.json();if(!j.ok)throw new Error(j.error);APP.users=j.users;renderUsers()}catch(err){console.error(err)}}
+function renderUsers(){if(!isAdmin())return;$('#usersList').innerHTML=(APP.users||[]).map(u=>`<article class="user-card"><header><div><strong>${esc(u.full_name)}</strong><small>@${esc(u.username)} · ${esc(u.email)}</small></div><span class="badge ${u.status==='ACTIVE'?'active':'suspended'}">${u.status}</span></header><p>${esc(u.role)}</p><div class="user-actions">${u.id!==APP.profile.id?`<button data-user-action="${u.status==='ACTIVE'?'suspend':'reactivate'}" data-user="${u.id}">${u.status==='ACTIVE'?'Suspender':'Reativar'}</button><button data-user-action="resetPassword" data-user="${u.id}">Nova senha</button><button data-user-action="delete" data-user="${u.id}">Excluir</button>`:'<small>Conta atual</small>'}</div></article>`).join('')}
+async function adminUserAction(action,userId,data={}){const {data:{session}}=await sb.auth.getSession();const r=await fetch(`${CFG.SUPABASE_URL}/functions/v1/admin-users`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${session.access_token}`,'apikey':CFG.SUPABASE_PUBLISHABLE_KEY},body:JSON.stringify({action,userId,...data})});const j=await r.json();if(!j.ok)throw new Error(j.error);return j}
+async function submitUser(e){e.preventDefault();const f=Object.fromEntries(new FormData(e.currentTarget));loading(true,'Criando usuário');try{await adminUserAction('create',null,f);$('#userDialog').close();e.currentTarget.reset();toast('Usuário criado.');await loadUsers()}catch(err){toast(err.message,true)}finally{loading(false)}}
 
-function classifyTask(t){const d=new Date(t.scheduledAt),now=new Date(),today=new Date(now);today.setHours(0,0,0,0);const tomorrow=new Date(today);tomorrow.setDate(today.getDate()+1);const after=new Date(tomorrow);after.setDate(tomorrow.getDate()+1);if(t.status==='DONE')return'completed';if(d<now)return'overdue';if(d<tomorrow)return'today';if(d<after)return'tomorrow';return'upcoming';}
-function taskCards(tasks,compact=false){
-  if(!tasks.length)return'<div class="empty">Nenhuma ação pendente.</div>';
-  return tasks.map(t=>{const group=classifyTask(t),d=new Date(t.scheduledAt),day=d.toLocaleDateString('pt-BR',{day:'2-digit'}),mon=d.toLocaleDateString('pt-BR',{month:'short'}).replace('.','');return `<article class="task-card ${group}"><div class="task-date"><strong>${day}</strong><small>${mon}</small></div><div class="task-info"><strong>Molhação — ${esc(t.lotCode)}</strong><small>${dateBR(t.scheduledAt)} · ${esc(t.responsible||'Sem responsável')}</small></div>${t.status==='DONE'?'<span class="badge ready">Concluída</span>':`<button class="confirm-btn" data-confirm-task="${esc(t.id)}">Confirmar</button>`}</article>`}).join('');
-}
-function renderTasks(){
-  const all=APP.tasks.filter(t=>!t.deletedAt).sort((a,b)=>new Date(a.scheduledAt)-new Date(b.scheduledAt));
-  const now=new Date();
-  const open=all.filter(t=>String(t.status).toUpperCase()!=='DONE');
-  const overdue=open.filter(t=>new Date(t.scheduledAt)<now&&new Date(t.scheduledAt).toDateString()!==now.toDateString());
-  const today=open.filter(t=>new Date(t.scheduledAt).toDateString()===now.toDateString());
-  const upcoming=open.filter(t=>new Date(t.scheduledAt)>now&&new Date(t.scheduledAt).toDateString()!==now.toDateString());
-  const done=all.filter(t=>String(t.status).toUpperCase()==='DONE');
+async function submitCollaborator(e){e.preventDefault();const f=new FormData(e.currentTarget),payload={full_name:f.get('fullName'),employment_type:f.get('employmentType'),daily_hours:num(f.get('dailyHours')),commission_per_1000:num(f.get('commission')),start_date:f.get('startDate')};const {error}=await sb.from('collaborators').insert(payload);if(error)return toast(error.message,true);$('#collaboratorDialog').close();toast('Colaborador cadastrado.');bootstrap()}
+async function submitAttendance(e){e.preventDefault();const f=new FormData(e.currentTarget),payload={collaborator_id:f.get('collaboratorId'),work_date:f.get('workDate'),shift:f.get('shift'),status:f.get('status'),note:f.get('note')||null,created_by:APP.profile.id};const {error}=await sb.from('attendance_exceptions').upsert(payload,{onConflict:'collaborator_id,work_date,shift'});if(error)return toast(error.message,true);$('#attendanceDialog').close();toast('Presença atualizada.');bootstrap()}
+async function setOffPeriod(id){const days=Number(prompt('Quantos dias ficará off?',4));if(!days||days<1)return;const start=prompt('Data inicial (AAAA-MM-DD)',new Date().toISOString().slice(0,10));if(!start)return;const rows=[];for(let i=0;i<days;i++){const d=new Date(start+'T12:00');d.setDate(d.getDate()+i);const date=d.toISOString().slice(0,10);rows.push({collaborator_id:id,work_date:date,shift:'MANHA',status:'OFF',note:`Off por ${days} dia(s)`,created_by:APP.profile.id},{collaborator_id:id,work_date:date,shift:'TARDE',status:'OFF',note:`Off por ${days} dia(s)`,created_by:APP.profile.id})}const {error}=await sb.from('attendance_exceptions').upsert(rows,{onConflict:'collaborator_id,work_date,shift'});if(error)return toast(error.message,true);toast('Período off registrado.');bootstrap()}
+async function toggleCollaborator(id){const c=APP.collaborators.find(x=>x.id===id),status=c.status==='ACTIVE'?'SUSPENDED':'ACTIVE';const {error}=await sb.from('collaborators').update({status}).eq('id',id);if(error)return toast(error.message,true);toast('Situação atualizada.');bootstrap()}
+async function submitFunction(e){e.preventDefault();const f=new FormData(e.currentTarget),payload={name:f.get('name'),function_type:f.get('type'),default_start:f.get('start')||null,default_end:f.get('end')||null,notes:f.get('notes')||null};const {error}=await sb.from('work_functions').insert(payload);if(error)return toast(error.message,true);$('#functionDialog').close();toast('Função criada.');bootstrap()}
+async function generateRotation(){const start=prompt('Data inicial da rotação (AAAA-MM-DD)',new Date().toISOString().slice(0,10));if(!start)return;const days=Number(prompt('Quantidade de dias',5));const {data,error}=await sb.rpc('generate_rotating_schedule',{p_start_date:start,p_days:days});if(error)return toast(error.message,true);toast(`${data} atribuições geradas.`);bootstrap()}
+async function submitSoil(e){e.preventDefault();const f=new FormData(e.currentTarget),payload={code:f.get('code'),name:f.get('name'),origin:f.get('origin'),sand_pct:num(f.get('sand')),clay_pct:num(f.get('clay'))};const {error}=await sb.from('soils').insert(payload);if(error)return toast(error.message,true);$('#soilDialog').close();toast('Terra cadastrada.');bootstrap()}
+async function submitPlan(e){e.preventDefault();const f=new FormData(e.currentTarget),payload={code:f.get('code'),name:f.get('name'),days:num(f.get('days')),times:String(f.get('times')||'').split(',').map(x=>x.trim()).filter(Boolean),description:f.get('description')||null};const {error}=await sb.from('watering_plans').insert(payload);if(error)return toast(error.message,true);$('#planDialog').close();toast('Plano criado.');bootstrap()}
 
-  $('#tasksHeroCount').textContent=open.length;
-  $('#taskOverdueCount').textContent=overdue.length;
-  $('#taskTodayCount').textContent=today.length;
-  $('#taskUpcomingCount').textContent=upcoming.length;
-  $('#taskDoneCount').textContent=done.length;
+function navigate(view){$$('.view').forEach(v=>v.classList.toggle('active',v.id===view));$$('.nav').forEach(n=>n.classList.toggle('active',n.dataset.view===view));const n=$(`.nav[data-view="${view}"]`);$('#pageTitle').textContent=n?.querySelector('span')?.textContent||'TerraLote';$('#sidebar').classList.remove('open')}
+function bind(){$('#loginForm').addEventListener('submit',login);$('#logoutBtn').onclick=logout;$('#menuBtn').onclick=()=>$('#sidebar').classList.toggle('open');$$('.nav').forEach(b=>b.onclick=()=>navigate(b.dataset.view));$$('[data-go]').forEach(b=>b.onclick=()=>navigate(b.dataset.go));$('#newLotBtn').onclick=()=>{setDefaultLot();$('#lotDialog').showModal()};$('#lotSearch').oninput=e=>renderLots(e.target.value);['soilBuckets','sandBuckets','cementBuckets'].forEach(n=>$('#lotForm [name='+n+']').addEventListener('input',updateMixProfile));$('#hasExtra').onchange=e=>{const show=e.target.value==='YES';$('#extrasWrap').classList.toggle('hidden',!show);if(show&&!$('#extrasList').children.length)addExtraRow()};$('#plasticWrapped').onchange=e=>$('#wateringField').classList.toggle('hidden',e.target.value==='YES');$('#addExtraBtn').onclick=addExtraRow;$('#lotForm').addEventListener('submit',submitLot);$('#userForm').addEventListener('submit',submitUser);$('#collaboratorForm').addEventListener('submit',submitCollaborator);$('#attendanceForm').addEventListener('submit',submitAttendance);$('#functionForm').addEventListener('submit',submitFunction);$('#soilForm').addEventListener('submit',submitSoil);$('#planForm').addEventListener('submit',submitPlan);$('#newUserBtn').onclick=()=>$('#userDialog').showModal();$('#newCollaboratorBtn').onclick=()=>{$('#collaboratorForm [name=startDate]').value=new Date().toISOString().slice(0,10);$('#collaboratorDialog').showModal()};$('#newFunctionBtn').onclick=()=>$('#functionDialog').showModal();$('#generateRotationBtn').onclick=generateRotation;$('#newSoilBtn').onclick=()=>$('#soilDialog').showModal();$('#newPlanBtn').onclick=()=>$('#planDialog').showModal();$$('[data-task-filter]').forEach(b=>b.onclick=()=>{APP.taskFilter=b.dataset.taskFilter;$$('[data-task-filter]').forEach(x=>x.classList.toggle('active',x===b));renderTasks()});document.addEventListener('click',async e=>{const close=e.target.closest('[data-close]');if(close){document.getElementById(close.dataset.close)?.close();return}const lot=e.target.closest('[data-lot]');if(lot){showLotDetail(lot.dataset.lot);return}const conf=e.target.closest('[data-confirm-task]');if(conf){confirmTask(conf.dataset.confirmTask);return}const del=e.target.closest('[data-delete-lot]');if(del){deleteLot(del.dataset.deleteLot);return}const att=e.target.closest('[data-attendance]');if(att){const f=$('#attendanceForm');f.collaboratorId.value=att.dataset.attendance;f.workDate.value=new Date().toISOString().slice(0,10);$('#attendanceDialog').showModal();return}const off=e.target.closest('[data-off]');if(off){setOffPeriod(off.dataset.off);return}const tc=e.target.closest('[data-toggle-collab]');if(tc){toggleCollaborator(tc.dataset.toggleCollab);return}const ua=e.target.closest('[data-user-action]');if(ua){try{const action=ua.dataset.userAction,id=ua.dataset.user;if(action==='delete'&&!confirm('Excluir este usuário definitivamente?'))return;if(action==='resetPassword'){const password=prompt('Nova senha (mínimo 8 caracteres)');if(!password)return;await adminUserAction(action,id,{password})}else await adminUserAction(action,id);toast('Usuário atualizado.');loadUsers()}catch(err){toast(err.message,true)}return}})}
 
-  const filtered=APP.taskFilter==='all'?all:APP.taskFilter==='done'?done:open;
-  const groups={};
-  filtered.forEach(t=>{
-    const d=new Date(t.scheduledAt);
-    let key;
-    if(d.toDateString()===now.toDateString())key='Hoje';
-    else{
-      const tomorrow=new Date(now);tomorrow.setDate(now.getDate()+1);
-      if(d.toDateString()===tomorrow.toDateString())key='Amanhã';
-      else key=d.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long'});
-    }
-    (groups[key]??=[]).push(t);
-  });
-
-  $('#taskGroups').innerHTML=Object.entries(groups).map(([day,items])=>{
-    const pending=items.filter(t=>String(t.status).toUpperCase()!=='DONE').length;
-    return `<section class="task-day-institutional">
-      <div class="task-day-heading"><div><span></span><h3>${day}</h3></div><small>${pending?pending+' pendente(s)':items.length+' concluída(s)'}</small></div>
-      <div class="task-day-list">${taskItemsHtml(items)}</div>
-    </section>`;
-  }).join('')||'<div class="task-empty-institutional"><div>✓</div><strong>Nenhuma ação encontrada</strong><span>Altere o filtro ou aguarde novas tarefas.</span></div>';
-}
-
-function renderCatalogs(){
-  const soils=APP.soils.filter(s=>!s.deletedAt);$('#soilsList').innerHTML=soils.length?soils.map(s=>`<article class="catalog-card"><h3>${esc(s.name)}</h3><p>${esc(s.origin)}</p><div class="catalog-facts"><div class="catalog-fact"><small>AREIA</small><strong>${formatQty(s.sandPct)}%</strong></div><div class="catalog-fact"><small>ARGILA</small><strong>${formatQty(s.clayPct)}%</strong></div></div>${s.notes?`<p style="margin-top:12px">${esc(s.notes)}</p>`:''}<div class="catalog-actions"><button class="mini-btn delete" data-delete-soil="${esc(s.id)}">Excluir</button></div></article>`).join(''):'<div class="empty">Cadastre a primeira terra para poder criar lotes.</div>';
-  const plans=APP.plans.filter(p=>!p.deletedAt);$('#plansList').innerHTML=plans.length?plans.map(p=>`<article class="catalog-card"><h3>${esc(p.name)}</h3><p>${esc(p.description||'Sem descrição')}</p><div class="catalog-facts"><div class="catalog-fact"><small>DIAS</small><strong>${p.days}</strong></div><div class="catalog-fact"><small>HORÁRIOS</small><strong>${(p.times||[]).join(', ')||'Sem molhação'}</strong></div></div><div class="catalog-actions">${p.system?'<span class="badge ready">Predefinido</span>':`<button class="mini-btn delete" data-delete-plan="${esc(p.id)}">Excluir</button>`}</div></article>`).join(''):'<div class="empty">Nenhum plano de molhação cadastrado.</div>';
-}
-function fillSelects(){
-  const soils=APP.soils.filter(s=>!s.deletedAt);$('#soilSelect').innerHTML='<option value="">Selecione uma terra</option>'+soils.map(s=>`<option value="${esc(s.id)}">${esc(s.name)} — ${esc(s.origin)}</option>`).join('');
-  const plans=APP.plans.filter(p=>!p.deletedAt);$('#wateringPlanSelect').innerHTML=plans.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');updateSoilInfo();
-}
-function updateSoilInfo(){const s=APP.soils.find(x=>x.id===$('#soilSelect').value);$('#soilInfo').textContent=s?`${s.sandPct}% areia · ${s.clayPct}% argila · ${s.origin}`:'As porcentagens vêm do catálogo.';}
-
-async function submitLot(e){
-  e.preventDefault();const form=e.currentTarget;const button=e.submitter;setBusy(button,true,'Salvando...');showLoading('Criando lote','Gerando o código, salvando o traço e programando a molhação.');
-  try{
-    const raw=Object.fromEntries(new FormData(form));
-    const soil=APP.soils.find(s=>s.id===raw.soilId),plan=APP.plans.find(p=>p.id===raw.wateringPlanId);
-    if(!soil)throw new Error('Selecione uma terra cadastrada.');if(!plan)throw new Error('Selecione um plano de molhação.');
-    const lot={manufacturedAt:toISO(raw.manufacturedAt),quantity:num(raw.quantity),responsible:raw.responsible.trim(),soilId:soil.id,soilName:soil.name,soilOrigin:soil.origin,soilSandPct:num(soil.sandPct),soilClayPct:num(soil.clayPct),soilKg:num(raw.soilKg),sandKg:num(raw.sandKg),cementKg:num(raw.cementKg),cementType:raw.cementType,extraName:raw.extraName.trim(),extraQty:raw.extraQty===''?null:num(raw.extraQty),extraUnit:raw.extraUnit,moisturePct:raw.moisturePct===''?null:num(raw.moisturePct),wateringPlanId:plan.id,wateringPlanName:plan.name,wateringDays:num(plan.days),wateringTimes:plan.times,cureDays:num(raw.cureDays),notes:raw.notes.trim()};
-    const created=await api('CREATE_LOT',{lot});APP.lots.unshift(created.lot);APP.tasks.push(...(created.tasks||[]));saveCache();renderAll();
-    APP.lastCreatedId=created.lot.id;$('#lotDialog').close();form.reset();setDefaultDateTime();showCreated(created.lot);
-  }catch(err){toast(err.message,true);}finally{hideLoading();setBusy(button,false);}
-}
-function showCreated(l){$('#createdContent').innerHTML=`<div class="created-box"><button type="button" class="icon created-close" data-close="createdDialog">×</button><div class="success-icon">✓</div><h2>Lote ${esc(l.lotCode)} criado</h2><p>O registro foi salvo na planilha e as molhações foram programadas.</p><div class="created-actions"><button class="primary" data-created-open="${esc(l.id)}">Abrir lote</button><button class="secondary" data-print="${esc(l.id)}">Imprimir</button><button class="danger ghost" data-delete-lot="${esc(l.id)}" data-close-after>Excluir lote</button></div></div>`;$('#createdDialog').showModal();}
-
-async function submitSoil(e){e.preventDefault();const form=e.currentTarget;const b=e.submitter;setBusy(b,true,'Cadastrando...');showLoading('Criando terra','Salvando a origem e sua composição no catálogo.');try{const f=Object.fromEntries(new FormData(form));if(num(f.sandPct)+num(f.clayPct)>105)throw new Error('A soma de areia e argila parece inconsistente.');const soil=await api('CREATE_SOIL',{soil:{name:f.name.trim(),origin:f.origin.trim(),sandPct:num(f.sandPct),clayPct:num(f.clayPct),notes:f.notes.trim()}});APP.soils.push(soil);saveCache();renderAll();if(form&&typeof form.reset==='function')form.reset();const dlg=$('#soilDialog');if(dlg&&dlg.open)dlg.close();successAndClose('#soilDialog','Terra criada com sucesso.');}catch(err){toast(err.message,true)}finally{hideLoading();setBusy(b,false)}}
-async function submitPlan(e){e.preventDefault();const form=e.currentTarget;const b=e.submitter;setBusy(b,true,'Criando...');showLoading('Criando plano de molhação','Gerando a programação personalizada.');try{const f=Object.fromEntries(new FormData(form));const times=f.times.split(',').map(x=>x.trim()).filter(Boolean);if(times.some(x=>!/^([01]\d|2[0-3]):[0-5]\d$/.test(x)))throw new Error('Use horários no formato 07:00, 12:00.');const plan=await api('CREATE_PLAN',{plan:{name:f.name.trim(),days:num(f.days),times,description:f.description.trim()}});APP.plans.push(plan);saveCache();renderAll();if(form&&typeof form.reset==='function')form.reset();const dlg=$('#planDialog');if(dlg&&dlg.open)dlg.close();successAndClose('#planDialog','Plano de molhação criado com sucesso.');}catch(err){toast(err.message,true)}finally{hideLoading();setBusy(b,false)}}
-async function confirmTask(id){const t=APP.tasks.find(x=>x.id===id);if(!t)return;try{await api('CONFIRM_TASK',{taskId:id});t.status='DONE';t.completedAt=new Date().toISOString();t.completedBy=APP.user?.name||'';saveCache();renderAll();toast(`Molhação de ${t.lotCode} confirmada.`);}catch(err){toast(err.message,true)}}
-async function deleteEntity(kind,id){
-  const labels={LOT:'este lote e suas pendências',SOIL:'esta terra do catálogo',PLAN:'este plano personalizado'};if(!confirm(`Tem certeza que deseja excluir ${labels[kind]}? Essa ação ficará registrada na auditoria.`))return;
-  try{await api('DELETE_ENTITY',{entity:kind,id});if(kind==='LOT'){const l=APP.lots.find(x=>x.id===id);if(l)l.deletedAt=new Date().toISOString();APP.tasks.filter(t=>t.lotId===id).forEach(t=>t.deletedAt=new Date().toISOString());$('#detailDialog').close();$('#createdDialog').close();}if(kind==='SOIL'){const x=APP.soils.find(s=>s.id===id);if(x)x.deletedAt=new Date().toISOString();}if(kind==='PLAN'){const x=APP.plans.find(p=>p.id===id);if(x)x.deletedAt=new Date().toISOString();}saveCache();renderAll();toast('Registro excluído.');}catch(err){toast(err.message,true)}
-}
-
-function showDetail(id){
-  const l=APP.lots.find(x=>x.id===id&&!x.deletedAt);if(!l)return;
-  const moisture=l.moisturePct===null||l.moisturePct===''?'Não informado':`${formatQty(l.moisturePct)}%`;
-  $('#detailContent').innerHTML=`<div class="dialog-head"><div><p>RASTREABILIDADE DO LOTE</p><h2>${esc(l.lotCode)}</h2><small>Criado em ${dateBR(l.createdAt||l.manufacturedAt)}</small></div><button class="icon" data-close="detailDialog">×</button></div><div class="detail-top"><span class="badge ${lotStatus(l)==='READY'?'ready':'active'}">${lotStatus(l)==='READY'?'Cura concluída':'Em cura · '+cureProgress(l)+'%'}</span><div class="detail-actions"><button class="secondary" data-print="${esc(l.id)}">Imprimir</button><button class="danger ghost" data-delete-lot="${esc(l.id)}">Excluir</button></div></div><div class="detail-grid"><div class="detail-cell"><small>Fabricação</small><strong>${dateBR(l.manufacturedAt)}</strong></div><div class="detail-cell"><small>Quantidade</small><strong>${formatQty(l.quantity)} tijolos</strong></div><div class="detail-cell"><small>Responsável</small><strong>${esc(l.responsible)}</strong></div><div class="detail-cell"><small>Terra / origem</small><strong>${esc(l.soilName)} · ${esc(l.soilOrigin)}</strong></div><div class="detail-cell"><small>Umidade</small><strong>${moisture}</strong></div><div class="detail-cell"><small>Cura programada</small><strong>${l.cureDays} dias · até ${dateBR(cureEnd(l).toISOString(),false)}</strong></div><div class="detail-cell"><small>Molhação</small><strong>${esc(l.wateringPlanName)}</strong></div><div class="detail-cell"><small>Composição da terra</small><strong>${formatQty(l.soilSandPct)}% areia · ${formatQty(l.soilClayPct)}% argila</strong></div><div class="detail-cell"><small>Observações</small><strong>${esc(l.notes||'Sem observações')}</strong></div></div><div class="mix-box"><h3>Traço utilizado</h3><div class="mix-list"><div class="mix-item"><span>Terra</span><strong>${formatQty(l.soilKg)} kg</strong></div><div class="mix-item"><span>Areia adicionada</span><strong>${formatQty(l.sandKg)} kg</strong></div><div class="mix-item"><span>Cimento ${esc(l.cementType)}</span><strong>${formatQty(l.cementKg)} kg</strong></div>${l.extraName?`<div class="mix-item"><span>${esc(l.extraName)}</span><strong>${formatQty(l.extraQty)} ${esc(l.extraUnit)}</strong></div>`:''}</div></div>`;
-  $('#detailDialog').showModal();
-}
-function printLot(id){
-  const l=APP.lots.find(x=>x.id===id);if(!l)return;const extra=l.extraName?`<tr><td>${esc(l.extraName)}</td><td>${formatQty(l.extraQty)} ${esc(l.extraUnit)}</td></tr>`:'';
-  const html=`<!doctype html><html><head><meta charset="utf-8"><title>${esc(l.lotCode)}</title><style>body{font-family:Arial,sans-serif;color:#17231f;margin:35px}header{border-bottom:3px solid #123f35;padding-bottom:15px;margin-bottom:25px}h1{margin:0;font-size:28px;color:#123f35}small{color:#66756f}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:22px}.cell{border:1px solid #dbe3df;border-radius:8px;padding:11px}.cell span,.cell strong{display:block}.cell span{font-size:10px;text-transform:uppercase;color:#687771;margin-bottom:5px}table{border-collapse:collapse;width:100%;margin-top:10px}th,td{border:1px solid #ccd8d3;padding:10px;text-align:left}th{background:#edf4f1}h2{font-size:17px;margin-top:24px}.note{border:1px solid #dbe3df;padding:12px;min-height:50px}@media print{button{display:none}}</style></head><body><header><h1>Ficha do lote ${esc(l.lotCode)}</h1><small>TerraLote — Controle de produção</small></header><div class="grid"><div class="cell"><span>Data e hora de fabricação</span><strong>${dateBR(l.manufacturedAt)}</strong></div><div class="cell"><span>Quantidade</span><strong>${formatQty(l.quantity)} tijolos</strong></div><div class="cell"><span>Responsável</span><strong>${esc(l.responsible)}</strong></div><div class="cell"><span>Terra / origem</span><strong>${esc(l.soilName)} — ${esc(l.soilOrigin)}</strong></div><div class="cell"><span>Composição da terra</span><strong>${formatQty(l.soilSandPct)}% areia · ${formatQty(l.soilClayPct)}% argila</strong></div><div class="cell"><span>Umidade</span><strong>${l.moisturePct===null?'Não informado':formatQty(l.moisturePct)+'%'}</strong></div><div class="cell"><span>Plano de molhação</span><strong>${esc(l.wateringPlanName)}</strong></div><div class="cell"><span>Cura programada</span><strong>${l.cureDays} dias</strong></div></div><h2>Traço utilizado</h2><table><thead><tr><th>Material</th><th>Quantidade</th></tr></thead><tbody><tr><td>Terra</td><td>${formatQty(l.soilKg)} kg</td></tr><tr><td>Areia adicionada</td><td>${formatQty(l.sandKg)} kg</td></tr><tr><td>Cimento ${esc(l.cementType)}</td><td>${formatQty(l.cementKg)} kg</td></tr>${extra}</tbody></table><h2>Observações</h2><div class="note">${esc(l.notes||'')}</div><script>window.onload=()=>window.print()<\/script></body></html>`;
-  const w=window.open('','_blank');if(!w){toast('O navegador bloqueou a impressão. Permita pop-ups para este site.',true);return;}w.document.write(html);w.document.close();
-}
-async function requestCredentialCode(){const b=$('#sendCodeBtn');$('#passwordMessage').textContent='';setBusy(b,true,'Enviando...');try{await api('REQUEST_CREDENTIAL_CODE');$('#passwordMessage').style.color='var(--success)';$('#passwordMessage').textContent='Código enviado para o e-mail administrativo. Ele vale por 10 minutos.';}catch(err){$('#passwordMessage').style.color='var(--danger)';$('#passwordMessage').textContent=err.message}finally{setBusy(b,false)}}
-async function changePassword(e){
-  e.preventDefault();const form=e.currentTarget;const b=e.submitter,f=Object.fromEntries(new FormData(form));$('#passwordMessage').textContent='';
-  if(f.newPassword!==f.confirmPassword){$('#passwordMessage').textContent='As novas senhas não coincidem.';return}
-  setBusy(b,true,'Alterando...');showLoading('Alterando seu acesso','Validando o código e protegendo as novas credenciais.');
-  try{
-    await api('CHANGE_CREDENTIALS',{newUsername:f.newUsername.trim(),newPassword:f.newPassword,verificationCode:f.verificationCode.trim()});
-    form.reset();closeDialog('#accountDialog');toast('Login e senha alterados com sucesso. Entre novamente com os novos dados.');
-    setTimeout(()=>logout(false),700);
-  }catch(err){$('#passwordMessage').style.color='var(--danger)';$('#passwordMessage').textContent=err.message}
-  finally{hideLoading();setBusy(b,false)}
-}
-
-
-
-function dashboardVisibleLots(){
-  const days=Number(APP.dashboardPeriod||30);
-  const cutoff=new Date(Date.now()-days*86400000);
-  const filtered=APP.lots.filter(l=>!l.deletedAt&&new Date(l.manufacturedAt)>=cutoff);
-  return filtered.length?filtered:APP.lots.filter(l=>!l.deletedAt);
-}
-function productionSeries(lots=dashboardVisibleLots()){
-  const groups={};
-  lots.forEach(l=>{
-    const d=new Date(l.manufacturedAt);if(Number.isNaN(d.getTime()))return;
-    const key=d.toISOString().slice(0,10);
-    groups[key]=(groups[key]||0)+num(l.quantity);
-  });
-  return Object.entries(groups).sort(([a],[b])=>a.localeCompare(b));
-}
-function monthSeries(lots=APP.lots.filter(l=>!l.deletedAt)){
-  const groups={};
-  lots.forEach(l=>{
-    const d=new Date(l.manufacturedAt);if(Number.isNaN(d.getTime()))return;
-    const key=d.toISOString().slice(0,7);
-    groups[key]=(groups[key]||0)+num(l.quantity);
-  });
-  return Object.entries(groups).sort(([a],[b])=>a.localeCompare(b)).slice(-12);
-}
-function shortDateLabel(iso){
-  const d=new Date(iso+'T12:00:00');return new Intl.DateTimeFormat('pt-BR',{day:'2-digit',month:'short'}).format(d).replace('.','');
-}
-function svgAreaChart(series,width=760,height=250){
-  if(!series.length)return '<div class="chart-empty">Ainda não há produção registrada neste período.</div>';
-  const values=series.map(x=>x[1]),max=Math.max(...values,1),min=0;
-  const pad={l:54,r:20,t:18,b:40},iw=width-pad.l-pad.r,ih=height-pad.t-pad.b;
-  const points=series.map((x,i)=>{
-    const px=pad.l+(series.length===1?iw/2:i*iw/(series.length-1));
-    const py=pad.t+ih-(x[1]-min)/(max-min||1)*ih;
-    return [px,py];
-  });
-  const line=points.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
-  const area=`M ${points[0][0]} ${pad.t+ih} `+points.map(p=>`L ${p[0]} ${p[1]}`).join(' ')+` L ${points[points.length-1][0]} ${pad.t+ih} Z`;
-  const grid=[0,.25,.5,.75,1].map(f=>{
-    const y=pad.t+ih-f*ih,v=Math.round(max*f);
-    return `<line x1="${pad.l}" y1="${y}" x2="${width-pad.r}" y2="${y}" class="chart-grid-line"/><text x="${pad.l-10}" y="${y+4}" text-anchor="end" class="chart-axis-text">${formatQty(v)}</text>`;
-  }).join('');
-  const step=Math.max(1,Math.ceil(series.length/6));
-  const labels=series.map((x,i)=>i%step===0||i===series.length-1?`<text x="${points[i][0]}" y="${height-12}" text-anchor="middle" class="chart-axis-text">${shortDateLabel(x[0])}</text>`:'').join('');
-  const dots=points.map((p,i)=>`<circle cx="${p[0]}" cy="${p[1]}" r="4" class="chart-dot"><title>${shortDateLabel(series[i][0])}: ${formatQty(series[i][1])} tijolos</title></circle>`).join('');
-  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Gráfico de produção">
-    <defs><linearGradient id="productionAreaGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#2f7d69" stop-opacity=".32"/><stop offset="100%" stop-color="#2f7d69" stop-opacity=".02"/></linearGradient></defs>
-    ${grid}<path d="${area}" fill="url(#productionAreaGradient)"/><path d="${line}" class="chart-main-line"/>${dots}${labels}
-  </svg>`;
-}
-function svgDonut(items,total,size=210){
-  const radius=72,circ=2*Math.PI*radius,center=size/2;
-  let offset=0;
-  const arcs=items.map(item=>{
-    const value=Math.max(0,item.value),len=total?value/total*circ:0;
-    const circle=`<circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="${item.color}" stroke-width="18" stroke-dasharray="${len} ${circ-len}" stroke-dashoffset="${-offset}" stroke-linecap="round"/>`;
-    offset+=len;return circle;
-  }).join('');
-  return `<svg viewBox="0 0 ${size} ${size}" class="donut-svg">${arcs}<text x="${center}" y="${center-2}" text-anchor="middle" class="donut-total">${total}</text><text x="${center}" y="${center+22}" text-anchor="middle" class="donut-label">lotes</text></svg>`;
-}
-function svgGauge(value){
-  const pct=Math.max(0,Math.min(100,Math.round(value))),r=74,circ=Math.PI*r;
-  const filled=circ*pct/100;
-  return `<svg viewBox="0 0 210 125" class="gauge-svg">
-    <path d="M 31 103 A 74 74 0 0 1 179 103" pathLength="${circ}" class="gauge-track"/>
-    <path d="M 31 103 A 74 74 0 0 1 179 103" pathLength="${circ}" class="gauge-value" stroke-dasharray="${filled} ${circ-filled}"/>
-    <text x="105" y="82" text-anchor="middle" class="gauge-number">${pct}%</text>
-    <text x="105" y="105" text-anchor="middle" class="gauge-caption">progresso médio</text>
-  </svg>`;
-}
-function taskItemsHtml(tasks){
-  return tasks.map(t=>{
-    const done=String(t.status).toUpperCase()==='DONE';
-    const due=new Date(t.scheduledAt), now=new Date();
-    const overdue=!done&&due<now;
-    const today=!done&&due.toDateString()===now.toDateString();
-    const state=done?'done':overdue?'overdue':today?'today':'upcoming';
-    const stateLabel=done?'Concluída':overdue?'Atrasada':today?'Hoje':'Programada';
-    return `<article class="task-card-institutional ${state}">
-      <div class="task-state-rail"></div>
-      <div class="task-date-block"><strong>${String(due.getDate()).padStart(2,'0')}</strong><span>${due.toLocaleDateString('pt-BR',{month:'short'}).replace('.','')}</span><small>${due.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</small></div>
-      <div class="task-main-info">
-        <div class="task-title-row"><span class="task-status-label ${state}">${stateLabel}</span><strong>Molhação — ${esc(t.lotCode)}</strong></div>
-        <p>${esc(t.responsible||'Responsável não informado')}</p>
-        <small>Confirmação operacional vinculada ao lote</small>
-      </div>
-      <div class="task-action-area">
-        ${done?'<span class="task-completed-check">✓ Confirmada</span>':`<button class="task-confirm-button" data-confirm-task="${esc(t.id)}">Confirmar execução</button>`}
-      </div>
-    </article>`;
-  }).join('')||'<div class="task-empty-institutional"><div>✓</div><strong>Nenhuma ação nesta categoria</strong><span>Quando houver novas tarefas, elas aparecerão aqui.</span></div>';
-}
-function renderDashboard(){
-  const visible=APP.lots.filter(l=>!l.deletedAt), periodLots=dashboardVisibleLots();
-  const active=visible.filter(l=>lotStatus(l)!=='COMPLETED').length;
-  const priority=APP.tasks.filter(t=>!t.deletedAt&&String(t.status).toUpperCase()!=='DONE'&&new Date(t.scheduledAt)<=new Date(Date.now()+86400000)).length;
-  const completed=visible.filter(l=>lotStatus(l)==='COMPLETED').length;
-  const completionRate=visible.length?Math.round(completed/visible.length*100):0;
-  const totalQty=visible.reduce((s,l)=>s+num(l.quantity),0);
-  $('#kpiActive').textContent=active;$('#kpiPending').textContent=priority;$('#kpiBricks').textContent=formatQty(totalQty);$('#kpiCompletion').textContent=completionRate+'%';
-  $('#navPendingBadge').textContent=APP.tasks.filter(t=>!t.deletedAt&&String(t.status).toUpperCase()!=='DONE').length;
-
-  const series=productionSeries(periodLots), periodTotal=periodLots.reduce((s,l)=>s+num(l.quantity),0);
-  const averageLot=periodLots.length?periodTotal/periodLots.length:0, peak=Math.max(0,...periodLots.map(l=>num(l.quantity)));
-  $('#productionPeriodTotal').textContent=formatQty(periodTotal);$('#productionLotAverage').textContent=formatQty(averageLot);$('#productionPeak').textContent=formatQty(peak);
-  $('#productionChart').innerHTML=svgAreaChart(series);
-
-  const overdue=visible.filter(l=>lotStatus(l)==='OVERDUE').length,curing=visible.length-completed-overdue;
-  const statusItems=[
-    {label:'Concluídos',value:completed,color:'#2f7d69'},
-    {label:'Em andamento',value:curing,color:'#d3a448'},
-    {label:'Com pendência',value:overdue,color:'#bd5546'}
-  ];
-  $('#statusChart').innerHTML=`<div class="status-donut-layout">${svgDonut(statusItems,visible.length)}<div class="status-legend">${statusItems.map(x=>`<div><i style="background:${x.color}"></i><span>${x.label}</span><strong>${x.value}</strong></div>`).join('')}</div></div>`;
-
-  const progressAvg=visible.length?visible.reduce((s,l)=>s+lotOverallProgress(l),0)/visible.length:0;
-  $('#completionGauge').innerHTML=`${svgGauge(progressAvg)}<div class="gauge-footer"><span><i class="dot-success"></i>${completed} concluído(s)</span><span><i class="dot-warning"></i>${active} em curso</span></div>`;
-
-  const cements={};visible.forEach(l=>cements[l.cementType||'Não informado']=(cements[l.cementType||'Não informado']||0)+num(l.quantity));
-  const cementRows=Object.entries(cements).sort((a,b)=>b[1]-a[1]),maxCement=Math.max(1,...cementRows.map(x=>x[1]));
-  $('#mixChart').innerHTML=cementRows.slice(0,5).map(([name,value])=>`<div class="hbar-row"><div class="hbar-label"><span>${esc(name)}</span><strong>${formatQty(value)}</strong></div><div class="hbar-track"><i style="width:${value/maxCement*100}%"></i></div><small>${totalQty?Math.round(value/totalQty*100):0}% do total</small></div>`).join('')||'<div class="chart-empty">Sem dados de cimento.</div>';
-
-  const dates=visible.map(l=>new Date(l.manufacturedAt).getTime()).filter(Number.isFinite),days=dates.length?Math.max(1,(Math.max(...dates)-Math.min(...dates))/86400000+1):1;
-  const daily=totalQty/days,weekly=daily*7;
-  const pendingTotal=APP.tasks.filter(t=>!t.deletedAt&&String(t.status).toUpperCase()!=='DONE').length;
-  $('#averageProduction').innerHTML=`
-    <div class="productivity-main"><small>Média diária</small><strong>${formatQty(daily)}</strong><span>tijolos por dia</span></div>
-    <div class="productivity-row"><div><small>Média semanal</small><strong>${formatQty(weekly)}</strong></div><div><small>Lotes no período</small><strong>${periodLots.length}</strong></div></div>
-    <div class="productivity-note"><span>${pendingTotal}</span> ação(ões) ainda aguardam confirmação</div>`;
-
-  $('#lotProgress').innerHTML=visible.slice(0,6).map(l=>`<article class="traceability-card status-${lotStatus(l).toLowerCase()}" data-lot="${esc(l.id)}">
-    <div class="traceability-top"><div><span class="traceability-code">${esc(l.lotCode)}</span><strong>${esc(l.responsible)}</strong></div><span class="badge ${lotStatus(l).toLowerCase()}">${lotStatusLabel(l)}</span></div>
-    <div class="traceability-progress-head"><span>Progresso consolidado</span><b>${lotOverallProgress(l)}%</b></div>
-    <div class="traceability-progress"><i style="width:${lotOverallProgress(l)}%"></i></div>
-    <div class="traceability-metrics"><div><small>Cura</small><strong>${dayDiff(l.manufacturedAt)}/${l.cureDays} dias</strong></div><div><small>Pendências</small><strong>${pendingLotTasks(l).length}</strong></div><div><small>Produção</small><strong>${formatQty(l.quantity)}</strong></div></div>
-  </article>`).join('')||'<div class="empty">Nenhum lote cadastrado.</div>';
-
-  const urgent=APP.tasks.filter(t=>!t.deletedAt&&String(t.status).toUpperCase()!=='DONE').sort((a,b)=>new Date(a.scheduledAt)-new Date(b.scheduledAt)).slice(0,5);
-  $('#nextTasks').innerHTML=urgent.map(t=>{
-    const due=new Date(t.scheduledAt),late=due<new Date();
-    return `<article class="priority-card ${late?'overdue':'scheduled'}">
-      <div class="priority-marker"></div>
-      <div class="priority-time"><strong>${due.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</strong><span>${due.toLocaleDateString('pt-BR',{day:'2-digit',month:'short'}).replace('.','')}</span></div>
-      <div class="priority-content"><span>${late?'Atrasada':'Programada'}</span><strong>${esc(t.lotCode)}</strong><small>${esc(t.responsible||'')}</small></div>
-      <button data-confirm-task="${esc(t.id)}" aria-label="Confirmar">✓</button>
-    </article>`;
-  }).join('')||'<div class="priority-empty"><span>✓</span><strong>Nenhuma prioridade aberta</strong><small>As próximas ações aparecerão aqui.</small></div>';
-}
-function renderTasks(){
-  const all=APP.tasks.filter(t=>!t.deletedAt).sort((a,b)=>new Date(a.scheduledAt)-new Date(b.scheduledAt));
-  const filtered=APP.taskFilter==='all'?all:APP.taskFilter==='done'?all.filter(t=>String(t.status).toUpperCase()==='DONE'):all.filter(t=>String(t.status).toUpperCase()!=='DONE');
-  const groups={};filtered.forEach(t=>{const key=new Date(t.scheduledAt).toLocaleDateString('pt-BR');(groups[key]??=[]).push(t)});
-  $('#taskGroups').innerHTML=Object.entries(groups).map(([day,items])=>`<section class="task-day"><div class="task-day-head"><h3>${day}</h3><span>${items.length} ação(ões)</span></div>${taskItemsHtml(items)}</section>`).join('')||'<div class="empty">Nenhuma tarefa encontrada.</div>';
-}
-function renderLots(filter=$('#lotSearch')?.value||''){
-  const q=String(filter).toLowerCase(),rows=APP.lots.filter(l=>!l.deletedAt&&JSON.stringify(l).toLowerCase().includes(q));
-  $('#lotsCards').innerHTML=rows.map(l=>`<article class="lot-mobile-card status-${lotStatus(l).toLowerCase()}" data-lot="${esc(l.id)}"><div><strong>${esc(l.lotCode)}</strong><small>${dateBR(l.manufacturedAt)}</small></div><span class="badge ${lotStatus(l).toLowerCase()}">${lotStatusLabel(l)}</span><div class="mobile-progress"><i style="width:${lotOverallProgress(l)}%"></i></div><p>${formatQty(l.quantity)} tijolos · ${lotOverallProgress(l)}%</p></article>`).join('')||'<div class="empty">Nenhum lote encontrado.</div>';
-  $('#lotsTable').innerHTML=rows.map(l=>`<tr data-lot="${esc(l.id)}"><td><strong>${esc(l.lotCode)}</strong></td><td>${dateBR(l.manufacturedAt)}</td><td>${formatQty(l.quantity)}</td><td>${formatMix(l)}</td><td>${esc(l.responsible)}</td><td><span class="badge ${lotStatus(l).toLowerCase()}">${lotStatusLabel(l)}</span></td><td><div class="table-progress"><i style="width:${lotOverallProgress(l)}%"></i><b>${lotOverallProgress(l)}%</b></div></td><td><button class="secondary" data-print="${esc(l.id)}">Imprimir</button></td></tr>`).join('');
-}
-function analyticsDialogShell(kicker,title,subtitle,body){
-  return `<div class="analytics-dialog-head"><div><p>${kicker}</p><h2>${title}</h2><span>${subtitle}</span></div><button class="icon" data-close="chartDialog">×</button></div><div class="analytics-dialog-body">${body}</div>`;
-}
-function openChartDetail(type){
-  const visible=APP.lots.filter(l=>!l.deletedAt),periodLots=dashboardVisibleLots();
-  let content='';
-  if(type==='production'){
-    const monthly=monthSeries(),total=monthly.reduce((s,x)=>s+x[1],0),best=monthly.reduce((a,b)=>!a||b[1]>a[1]?b:a,null);
-    content=analyticsDialogShell('ANÁLISE DE PRODUÇÃO','Histórico de produção','Volumes agrupados por mês de fabricação.',`
-      <div class="dialog-kpis"><div><small>Total exibido</small><strong>${formatQty(total)}</strong><span>tijolos</span></div><div><small>Melhor mês</small><strong>${best?best[0]:'—'}</strong><span>${best?formatQty(best[1])+' tijolos':'sem dados'}</span></div><div><small>Lotes analisados</small><strong>${visible.length}</strong><span>registros</span></div></div>
-      <div class="dialog-chart">${svgAreaChart(monthly.map(([m,v])=>[m+'-01',v]),900,310)}</div>
-      <div class="analytics-table"><div class="analytics-table-head"><span>Período</span><span>Produção</span><span>Participação</span></div>${monthly.slice().reverse().map(([m,v])=>`<div><span>${m}</span><strong>${formatQty(v)} tijolos</strong><span>${total?Math.round(v/total*100):0}%</span></div>`).join('')}</div>`);
-  }else if(type==='status'){
-    const groups={COMPLETED:[],CURING:[],OVERDUE:[]};visible.forEach(l=>groups[lotStatus(l)].push(l));
-    const items=[{label:'Concluídos',value:groups.COMPLETED.length,color:'#2f7d69'},{label:'Em andamento',value:groups.CURING.length,color:'#d3a448'},{label:'Com pendência',value:groups.OVERDUE.length,color:'#bd5546'}];
-    content=analyticsDialogShell('SITUAÇÃO DOS LOTES','Controle operacional','Status calculado pela cura e pelas molhações.',`
-      <div class="dialog-status-overview">${svgDonut(items,visible.length,240)}<div class="dialog-status-cards">${items.map(i=>`<div><i style="background:${i.color}"></i><span>${i.label}</span><strong>${i.value}</strong></div>`).join('')}</div></div>
-      <div class="analytics-list">${visible.map(l=>`<button type="button" data-lot="${esc(l.id)}"><div><strong>${esc(l.lotCode)}</strong><span>${esc(l.responsible)} · ${formatQty(l.quantity)} tijolos</span></div><div><span class="badge ${lotStatus(l).toLowerCase()}">${lotStatusLabel(l)}</span><b>${lotOverallProgress(l)}%</b></div></button>`).join('')||'<div class="chart-empty">Nenhum lote cadastrado.</div>'}</div>`);
-  }else if(type==='cement'){
-    const groups={};visible.forEach(l=>groups[l.cementType||'Não informado']=(groups[l.cementType||'Não informado']||0)+num(l.quantity));
-    const rows=Object.entries(groups).sort((a,b)=>b[1]-a[1]),total=rows.reduce((s,x)=>s+x[1],0),max=Math.max(1,...rows.map(x=>x[1]));
-    content=analyticsDialogShell('COMPOSIÇÃO DE PRODUÇÃO','Tipos de cimento utilizados','Participação de cada cimento no volume produzido.',`
-      <div class="dialog-horizontal-bars">${rows.map(([name,value])=>`<div class="dialog-hbar"><div><span>${esc(name)}</span><strong>${formatQty(value)} tijolos</strong></div><div class="hbar-track"><i style="width:${value/max*100}%"></i></div><small>${total?Math.round(value/total*100):0}% da produção acumulada</small></div>`).join('')||'<div class="chart-empty">Sem dados de cimento.</div>'}</div>`);
-  }else if(type==='completion'){
-    const avg=visible.length?visible.reduce((s,l)=>s+lotOverallProgress(l),0)/visible.length:0;
-    content=analyticsDialogShell('DESEMPENHO OPERACIONAL','Progresso dos lotes','Indicador combinado de cura e molhações confirmadas.',`
-      <div class="dialog-gauge">${svgGauge(avg)}</div><div class="analytics-list">${visible.sort((a,b)=>lotOverallProgress(b)-lotOverallProgress(a)).map(l=>`<button type="button" data-lot="${esc(l.id)}"><div><strong>${esc(l.lotCode)}</strong><span>${dayDiff(l.manufacturedAt)} de ${l.cureDays} dias · ${pendingLotTasks(l).length} pendência(s)</span></div><div class="dialog-mini-progress"><i style="width:${lotOverallProgress(l)}%"></i></div><b>${lotOverallProgress(l)}%</b></button>`).join('')}</div>`);
-  }else{
-    const total=visible.reduce((s,l)=>s+num(l.quantity),0),dates=visible.map(l=>new Date(l.manufacturedAt).getTime()).filter(Number.isFinite),days=dates.length?Math.max(1,(Math.max(...dates)-Math.min(...dates))/86400000+1):1;
-    content=analyticsDialogShell('PRODUTIVIDADE','Indicadores de produção','Médias calculadas a partir do histórico cadastrado.',`
-      <div class="dialog-kpis"><div><small>Média diária</small><strong>${formatQty(total/days)}</strong><span>tijolos</span></div><div><small>Média semanal</small><strong>${formatQty(total/days*7)}</strong><span>tijolos</span></div><div><small>Média por lote</small><strong>${formatQty(visible.length?total/visible.length:0)}</strong><span>tijolos</span></div></div>
-      <div class="analytics-note"><strong>Como interpretar</strong><p>Esses indicadores consideram as datas de fabricação dos lotes já registrados. A precisão aumenta à medida que o histórico de produção se torna mais completo.</p></div>`);
-  }
-  $('#chartDetailContent').innerHTML=content;$('#chartDialog').showModal();
-}
-
-async function requestForgotCode(){
-  const b=$('#forgotSendCodeBtn');
-  $('#forgotMessage').textContent='';
-  setBusy(b,true,'Enviando...');
-  showLoading('Enviando código','Aguarde a confirmação do servidor.');
-  try{
-    await api('REQUEST_PASSWORD_RESET_CODE');
-    $('#forgotMessage').style.color='var(--success)';
-    $('#forgotMessage').textContent='Código enviado. Verifique o e-mail administrativo.';
-  }catch(err){
-    $('#forgotMessage').style.color='var(--danger)';
-    $('#forgotMessage').textContent=err.message;
-  }finally{
-    hideLoading();setBusy(b,false);
-  }
-}
-
-async function resetForgotPassword(e){
-  e.preventDefault();
-  const form=e.currentTarget,b=e.submitter,f=Object.fromEntries(new FormData(form));
-  $('#forgotMessage').textContent='';
-  if(f.newPassword!==f.confirmPassword){
-    $('#forgotMessage').textContent='As senhas informadas não coincidem.';
-    return;
-  }
-  setBusy(b,true,'Redefinindo...');
-  showLoading('Redefinindo o acesso','Validando o código de segurança.');
-  try{
-    await api('RESET_PASSWORD_WITH_CODE',{
-      newUsername:f.newUsername.trim(),
-      newPassword:f.newPassword,
-      verificationCode:f.verificationCode.trim()
-    });
-    form.reset();
-    closeDialog('#forgotDialog');
-    toast('Acesso redefinido. Entre com o novo usuário e a nova senha.');
-  }catch(err){
-    $('#forgotMessage').style.color='var(--danger)';
-    $('#forgotMessage').textContent=err.message;
-  }finally{
-    hideLoading();setBusy(b,false);
-  }
-}
-
-function setDefaultDateTime(){
-  const d=new Date();
-  const local=new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);
-  const field=$('#lotForm [name=manufacturedAt]');
-  if(field)field.value=local;
-}
-
-function navigate(view){
-  $$('.nav').forEach(x=>x.classList.toggle('active',x.dataset.view===view));
-  $$('.view').forEach(x=>x.classList.toggle('active',x.id===view));
-  const btn=$(`.nav[data-view="${view}"]`);
-  $('#pageTitle').textContent=btn?btn.textContent.replace(/\d+/g,'').trim():'TerraLote';
-  $('#sidebar').classList.remove('open');
-  window.scrollTo({top:0,behavior:'smooth'});
-}
-
-function connection(){
-  const on=navigator.onLine;
-  $('#connectionDot').style.background=on?'#63d39c':'#e4a93f';
-  $('#connectionText').textContent=on?'Online · dados sincronizados':'Offline · usando dados salvos';
-  if(on&&APP.token)bootstrap().catch(()=>{});
-}
-
-function bindEvents(){
-  $('#loginForm')?.addEventListener('submit',login);
-  $('#forgotForm')?.addEventListener('submit',resetForgotPassword);
-  $('#sendCodeBtn')?.addEventListener('click',requestCredentialCode);
-  $('#forgotSendCodeBtn')?.addEventListener('click',requestForgotCode);
-  $('#forgotPasswordBtn').onclick=()=>$('#forgotDialog').showModal();
-  $('#lotForm')?.addEventListener('submit',submitLot);
-  $('#soilForm')?.addEventListener('submit',submitSoil);
-  $('#planForm')?.addEventListener('submit',submitPlan);
-  $('#passwordForm')?.addEventListener('submit',changePassword);
-
-  $('#newLotBtn').onclick=()=>{setDefaultDateTime();$('#lotDialog').showModal()};
-  $('#newSoilBtn').onclick=()=>$('#soilDialog').showModal();
-  $('#newPlanBtn').onclick=()=>$('#planDialog').showModal();
-  $('#accountBtn').onclick=()=>$('#accountDialog').showModal();
-  $('#logoutBtn').onclick=()=>logout();
-  $('#menuBtn').onclick=()=>$('#sidebar').classList.toggle('open');
-  $('#soilSelect').onchange=updateSoilInfo;
-  $('#lotSearch').oninput=e=>renderLots(e.target.value);
-
-  $$('.nav').forEach(b=>b.onclick=()=>navigate(b.dataset.view));
-  $$('[data-go]').forEach(b=>b.onclick=()=>navigate(b.dataset.go));
-  $$('.tab').forEach(b=>b.onclick=()=>{
-    $$('.tab').forEach(x=>x.classList.remove('active'));
-    b.classList.add('active');
-    $$('.tab-panel').forEach(x=>x.classList.remove('active'));
-    $('#'+b.dataset.tab+'Tab').classList.add('active');
-  });
-
-  document.addEventListener('click',e=>{
-    const close=e.target.closest('[data-close]');
-    if(close){document.getElementById(close.dataset.close)?.close();return;}
-
-    const tf=e.target.closest('[data-task-filter]');
-    if(tf){
-      APP.taskFilter=tf.dataset.taskFilter;
-      $$('[data-task-filter]').forEach(x=>x.classList.toggle('active',x===tf));
-      renderTasks();return;
-    }
-
-    const chart=e.target.closest('[data-chart]');
-    if(chart){openChartDetail(chart.dataset.chart);return;}
-    const period=e.target.closest('[data-period]');
-    if(period){APP.dashboardPeriod=Number(period.dataset.period);$$('[data-period]').forEach(x=>x.classList.toggle('active',x===period));renderDashboard();return;}
-    const curePreset=e.target.closest('[data-cure-days]');
-    if(curePreset){const field=$('#cureDaysInput');if(field){field.value=curePreset.dataset.cureDays;field.focus();}return;}
-
-    const print=e.target.closest('[data-print]');
-    if(print){e.stopPropagation();printLot(print.dataset.print);return;}
-
-    const delLot=e.target.closest('[data-delete-lot]');
-    if(delLot){e.stopPropagation();deleteEntity('LOT',delLot.dataset.deleteLot);return;}
-
-    const delSoil=e.target.closest('[data-delete-soil]');
-    if(delSoil){deleteEntity('SOIL',delSoil.dataset.deleteSoil);return;}
-
-    const delPlan=e.target.closest('[data-delete-plan]');
-    if(delPlan){deleteEntity('PLAN',delPlan.dataset.deletePlan);return;}
-
-    const conf=e.target.closest('[data-confirm-task]');
-    if(conf){confirmTask(conf.dataset.confirmTask);return;}
-
-    const created=e.target.closest('[data-created-open]');
-    if(created){$('#createdDialog').close();showDetail(created.dataset.createdOpen);return;}
-
-    const lot=e.target.closest('[data-lot]');
-    if(lot)showDetail(lot.dataset.lot);
-  });
-
-  window.addEventListener('online',connection);
-  window.addEventListener('offline',connection);
-}
-
-async function init(){
-  bindEvents();connection();setDefaultDateTime();
-  if('serviceWorker'in navigator)navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
-  if(APP.token){showApp();if(loadCache())renderAll();try{await bootstrap()}catch(err){logout(false);$('#loginMessage').textContent='Sua sessão expirou. Entre novamente.';}}
-}
+async function init(){bind();if(!CFG.SUPABASE_URL||CFG.SUPABASE_URL.includes('COLE_AQUI')){$('#loginMessage').textContent='Configure SUPABASE_URL e SUPABASE_PUBLISHABLE_KEY em config.js.';return}const {data:{session}}=await sb.auth.getSession();if(session){try{await getProfile();showApp();await bootstrap()}catch(err){toast(err.message,true)}}if('serviceWorker'in navigator)navigator.serviceWorker.register('service-worker.js?v=400')}
 init();

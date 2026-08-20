@@ -5,304 +5,143 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#123f35">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="TerraLote">
-  <title>TerraLote — Controle de Produção e Cura</title>
+  <title>TerraLote - Produção e Gestão</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="styles.css?v=310">
+  <link rel="stylesheet" href="styles.css?v=400">
 </head>
 <body>
   <section id="loginScreen" class="login-screen">
     <div class="login-card">
-      <div class="login-brand"><span class="brand-mark">T</span><div><strong>TerraLote</strong><small>Controle de produção e cura</small></div></div>
+      <div class="login-brand"><span class="brand-mark">T</span><div><strong>TerraLote</strong><small>Produção, cura e equipe</small></div></div>
       <h1>Acesso ao sistema</h1>
-      <p>Entre com seu usuário e senha para acessar os lotes.</p>
+      <p>Entre com seu usuário ou e-mail e sua senha.</p>
       <form id="loginForm" class="stack-form">
-        <label>Usuário<input name="username" autocomplete="username" required placeholder="Digite o usuário"></label>
-        <label>Senha<input name="password" type="password" autocomplete="current-password" required placeholder="Digite a senha"></label>
+        <label>Usuário ou e-mail<input name="login" autocomplete="username" required></label>
+        <label>Senha<input name="password" type="password" autocomplete="current-password" required></label>
         <button class="primary wide" type="submit">Entrar</button>
-        <button id="forgotPasswordBtn" class="link-button" type="button">Esqueci minha senha</button>
-        <div id="loginMessage" class="form-message" aria-live="polite"></div>
+        <div id="loginMessage" class="form-message"></div>
       </form>
-      <small class="login-help">É necessário estar online no primeiro acesso. Depois, os dados recentes ficam disponíveis offline.</small>
     </div>
   </section>
 
   <div id="appShell" class="app-shell hidden">
     <aside class="sidebar" id="sidebar">
-      <div class="brand"><span class="brand-mark">T</span><div><strong>TerraLote</strong><small>Controle tecnológico</small></div></div>
+      <div class="brand"><span class="brand-mark">T</span><div><strong>TerraLote</strong><small>Controle institucional</small></div></div>
       <nav>
-        <button class="nav active" data-view="dashboard"><span>⌂</span> Visão geral</button>
-        <button class="nav" data-view="lots"><span>▤</span> Lotes</button>
-        <button class="nav" data-view="tasks"><span>✓</span> Pendências <b id="navPendingBadge" class="nav-badge">0</b></button>
-        <button class="nav" data-view="catalog"><span>⌘</span> Catálogos</button>
+        <button class="nav active" data-view="dashboard">⌂ <span>Visão geral</span></button>
+        <button class="nav" data-view="lots">▤ <span>Lotes</span></button>
+        <button class="nav" data-view="tasks">✓ <span>Pendências</span><b id="pendingBadge">0</b></button>
+        <button class="nav" data-view="collaborators">◉ <span>Colaboradores</span></button>
+        <button class="nav" data-view="schedule">↻ <span>Funções e escala</span></button>
+        <button class="nav admin-only" data-view="catalog">⌘ <span>Catálogos</span></button>
+        <button class="nav admin-only" data-view="users">⚙ <span>Usuários</span></button>
       </nav>
       <div class="sidebar-foot">
-        <button id="accountBtn" class="account-button"><span id="accountInitial">O</span><div><strong id="accountName">Operador</strong><small>Conta e segurança</small></div></button>
-        <div class="connection"><i id="connectionDot"></i><span id="connectionText">Verificando...</span></div>
+        <div class="user-chip"><span id="userInitial">U</span><div><strong id="userName">Usuário</strong><small id="userRole">OPERADOR</small></div></div>
+        <button class="secondary wide" id="logoutBtn">Sair</button>
       </div>
     </aside>
 
     <main>
       <header class="topbar">
-        <button id="menuBtn" class="menu-btn" aria-label="Abrir menu">☰</button>
-        <div class="heading"><p>CONTROLE DE PRODUÇÃO E CURA</p><h1 id="pageTitle">Visão geral</h1></div>
-        <button class="primary new-lot-short" id="newLotBtn">＋ Novo lote</button>
+        <button class="menu-btn" id="menuBtn">☰</button>
+        <div><p>CONTROLE DE PRODUÇÃO</p><h1 id="pageTitle">Visão geral</h1></div>
+        <button class="primary" id="newLotBtn">＋ Novo lote</button>
       </header>
 
       <section id="dashboard" class="view active">
-        <div class="dashboard-operations">
-          <article class="panel dashboard-lots">
-            <div class="panel-head"><div><p class="chart-eyebrow">RASTREABILIDADE</p><h2>Andamento dos lotes</h2><p>Selecione um lote para visualizar os detalhes</p></div><button class="text-button" data-go="lots">Ver todos</button></div>
-            <div id="lotProgress" class="lot-progress-grid professional"></div>
-          </article>
-          <article class="panel dashboard-tasks">
-            <div class="panel-head"><div><p class="chart-eyebrow">PRIORIDADES</p><h2>Próximas ações</h2><p>Organizadas pela data e urgência</p></div><button class="text-button" data-go="tasks">Ver pendências</button></div>
-            <div id="nextTasks" class="task-list compact"></div>
-          </article>
+        <div class="ops-grid">
+          <article class="panel"><div class="panel-head"><div><p class="eyebrow">RASTREABILIDADE</p><h2>Lotes em andamento</h2></div><button class="text-btn" data-go="lots">Ver todos</button></div><div id="dashboardLots" class="trace-grid"></div></article>
+          <article class="panel"><div class="panel-head"><div><p class="eyebrow">PRIORIDADES</p><h2>Ações do dia</h2></div><button class="text-btn" data-go="tasks">Ver pendências</button></div><div id="dashboardTasks" class="priority-list"></div></article>
         </div>
-
-        <div class="dashboard-intro">
-          <div>
-            <p class="section-kicker">PAINEL OPERACIONAL</p>
-            <h2>Produção e cura em tempo real</h2>
-            <p>Acompanhe o volume produzido, a situação dos lotes e as ações que exigem atenção.</p>
-          </div>
-          
-        <div class="period-control" aria-label="Período do painel">
-            <button type="button" class="active" data-period="30">30 dias</button>
-            <button type="button" data-period="90">90 dias</button>
-            <button type="button" data-period="365">12 meses</button>
-          </div>
+        <div class="kpi-grid">
+          <article class="kpi"><small>Produção da semana</small><strong id="kpiWeek">0</strong><span>tijolos</span></article>
+          <article class="kpi"><small>Lotes ativos</small><strong id="kpiLots">0</strong><span>em cura</span></article>
+          <article class="kpi"><small>Pendências</small><strong id="kpiTasks">0</strong><span>ações abertas</span></article>
+          <article class="kpi"><small>Comissão da semana</small><strong id="kpiCommission">R$ 0</strong><span>equipe elegível</span></article>
         </div>
-
-        <div class="executive-kpis">
-          <article class="executive-kpi">
-            <div class="kpi-symbol"><span>▦</span></div>
-            <div><small>Lotes em andamento</small><strong id="kpiActive">0</strong><p id="kpiActiveCaption">produção ou cura</p></div>
-            <span class="kpi-trend neutral" id="kpiActiveTrend">Atual</span>
-          </article>
-          <article class="executive-kpi attention">
-            <div class="kpi-symbol"><span>!</span></div>
-            <div><small>Ações prioritárias</small><strong id="kpiPending">0</strong><p>atrasadas ou para hoje</p></div>
-            <span class="kpi-trend warning" id="kpiPendingTrend">Atenção</span>
-          </article>
-          <article class="executive-kpi">
-            <div class="kpi-symbol"><span>▥</span></div>
-            <div><small>Produção acumulada</small><strong id="kpiBricks">0</strong><p>tijolos cadastrados</p></div>
-            <span class="kpi-trend positive" id="kpiProductionTrend">Histórico</span>
-          </article>
-          <article class="executive-kpi">
-            <div class="kpi-symbol"><span>✓</span></div>
-            <div><small>Taxa de conclusão</small><strong id="kpiCompletion">0%</strong><p>lotes concluídos</p></div>
-            <span class="kpi-trend positive" id="kpiCompletionTrend">Qualidade</span>
-          </article>
+        <div class="analytics-grid">
+          <article class="panel"><div class="panel-head"><div><p class="eyebrow">PRODUÇÃO</p><h2>Últimos 14 dias</h2></div></div><div id="productionChart" class="bars-chart"></div></article>
+          <article class="panel"><div class="panel-head"><div><p class="eyebrow">EQUIPE</p><h2>Comissão no ciclo atual</h2></div></div><div id="commissionChart" class="commission-chart"></div></article>
         </div>
-
-        <div class="dashboard-analytics-main">
-          <article class="panel chart-panel chart-panel-large" data-chart="production">
-            <div class="panel-head">
-              <div><p class="chart-eyebrow">VOLUME PRODUZIDO</p><h2>Produção no período</h2><p>Quantidade de tijolos por data de fabricação</p></div>
-              <button class="chart-action" type="button" aria-label="Expandir gráfico">Ver análise <span>↗</span></button>
-            </div>
-            <div class="chart-summary-row">
-              <div><small>Total no período</small><strong id="productionPeriodTotal">0</strong><span>tijolos</span></div>
-              <div><small>Média por lote</small><strong id="productionLotAverage">0</strong><span>tijolos</span></div>
-              <div><small>Maior produção</small><strong id="productionPeak">0</strong><span>em um lote</span></div>
-            </div>
-            <div id="productionChart" class="institutional-chart chart-production"></div>
-          </article>
-
-          <article class="panel chart-panel" data-chart="status">
-            <div class="panel-head">
-              <div><p class="chart-eyebrow">CONTROLE DE LOTES</p><h2>Situação atual</h2><p>Distribuição dos status operacionais</p></div>
-              <button class="chart-action icon-only" type="button" aria-label="Expandir gráfico">↗</button>
-            </div>
-            <div id="statusChart" class="institutional-chart chart-status"></div>
-          </article>
-        </div>
-
-        <div class="dashboard-analytics-secondary">
-          <article class="panel chart-panel" data-chart="completion">
-            <div class="panel-head">
-              <div><p class="chart-eyebrow">DESEMPENHO</p><h2>Progresso médio</h2><p>Cura e cumprimento das molhações</p></div>
-              <button class="chart-action icon-only" type="button" aria-label="Expandir gráfico">↗</button>
-            </div>
-            <div id="completionGauge" class="institutional-chart gauge-chart"></div>
-          </article>
-
-          <article class="panel chart-panel" data-chart="cement">
-            <div class="panel-head">
-              <div><p class="chart-eyebrow">COMPOSIÇÃO</p><h2>Produção por cimento</h2><p>Volume de tijolos por tipo utilizado</p></div>
-              <button class="chart-action icon-only" type="button" aria-label="Expandir gráfico">↗</button>
-            </div>
-            <div id="mixChart" class="institutional-chart horizontal-bars"></div>
-          </article>
-
-          <article class="panel chart-panel" data-chart="productivity">
-            <div class="panel-head">
-              <div><p class="chart-eyebrow">PRODUTIVIDADE</p><h2>Indicadores médios</h2><p>Leitura diária e semanal</p></div>
-              <button class="chart-action icon-only" type="button" aria-label="Expandir gráfico">↗</button>
-            </div>
-            <div id="averageProduction" class="productivity-metrics"></div>
-          </article>
-        </div>
-
-        </section>
+      </section>
 
       <section id="lots" class="view">
-        <article class="panel">
-          <div class="panel-head responsive"><div><h2>Catálogo de lotes</h2><p>Abra, imprima ou exclua um registro</p></div><input id="lotSearch" class="search" placeholder="Buscar lote, responsável ou material"></div>
-          <div id="lotsCards" class="mobile-card-list"></div>
-          <div class="table-wrap desktop-table"><table><thead><tr><th>Lote</th><th>Fabricação</th><th>Qtd.</th><th>Traço</th><th>Responsável</th><th>Status</th><th>Andamento</th><th></th></tr></thead><tbody id="lotsTable"></tbody></table></div>
-        </article>
+        <article class="panel"><div class="panel-head responsive"><div><h2>Lotes</h2><p>Rastreabilidade da produção</p></div><input id="lotSearch" class="search" placeholder="Buscar lote"></div><div id="lotsList" class="cards-list"></div></article>
       </section>
 
       <section id="tasks" class="view">
-        <div class="tasks-hero">
-          <div>
-            <p class="section-kicker">CONTROLE OPERACIONAL</p>
-            <h2>Pendências e confirmações</h2>
-            <p>Acompanhe as ações por prioridade, data e situação.</p>
-          </div>
-          <div class="tasks-hero-badge"><span id="tasksHeroCount">0</span><small>ações abertas</small></div>
-        </div>
-
-        <div class="tasks-summary-grid">
-          <article class="task-summary critical">
-            <div class="summary-icon">!</div>
-            <div><small>Atrasadas</small><strong id="taskOverdueCount">0</strong><span>exigem ação imediata</span></div>
-          </article>
-          <article class="task-summary today">
-            <div class="summary-icon">◷</div>
-            <div><small>Para hoje</small><strong id="taskTodayCount">0</strong><span>programadas para o dia</span></div>
-          </article>
-          <article class="task-summary upcoming">
-            <div class="summary-icon">→</div>
-            <div><small>Próximas</small><strong id="taskUpcomingCount">0</strong><span>a partir de amanhã</span></div>
-          </article>
-          <article class="task-summary completed">
-            <div class="summary-icon">✓</div>
-            <div><small>Concluídas</small><strong id="taskDoneCount">0</strong><span>histórico confirmado</span></div>
-          </article>
-        </div>
-
-        <article class="panel tasks-panel">
-          <div class="tasks-toolbar-institutional">
-            <div class="segmented" id="taskFilter">
-              <button type="button" class="active" data-task-filter="open">Pendentes</button>
-              <button type="button" data-task-filter="done">Concluídas</button>
-              <button type="button" data-task-filter="all">Todas</button>
-            </div>
-            <div class="task-sort-hint"><span class="priority-dot overdue"></span>Atrasadas primeiro <span class="priority-dot today"></span>Depois hoje</div>
-          </div>
-          <div id="taskGroups" class="task-groups institutional"></div>
-        </article>
+        <div class="tasks-head"><div><p class="eyebrow">CONTROLE OPERACIONAL</p><h2>Pendências</h2><p>Confirme cada ação executada.</p></div><div class="segmented"><button class="active" data-task-filter="pending">Pendentes</button><button data-task-filter="done">Concluídas</button><button data-task-filter="all">Todas</button></div></div>
+        <div id="tasksList" class="task-day-groups"></div>
       </section>
 
-      <section id="catalog" class="view">
-        <div class="catalog-header"><div><h2>Catálogos de produção</h2><p>Cadastre as informações reutilizadas nos lotes</p></div></div>
-        <div class="tabs"><button class="tab active" data-tab="soils">Terras e origens</button><button class="tab" data-tab="plans">Planos de molhação</button></div>
-        <div id="soilsTab" class="tab-panel active">
-          <div class="panel-head responsive"><div><h2>Terras cadastradas</h2><p>Areia e argila serão preenchidas automaticamente no lote</p></div><button class="primary" id="newSoilBtn">＋ Nova terra</button></div>
-          <div id="soilsList" class="catalog-grid"></div>
+      <section id="collaborators" class="view">
+        <div class="section-head"><div><p class="eyebrow">EQUIPE</p><h2>Colaboradores</h2><p>Presença, produção elegível e comissão semanal.</p></div><button class="primary admin-only" id="newCollaboratorBtn">＋ Colaborador</button></div>
+        <div id="collaboratorSummary" class="kpi-grid compact"></div>
+        <div id="collaboratorsList" class="employee-grid"></div>
+      </section>
+
+      <section id="schedule" class="view">
+        <div class="section-head"><div><p class="eyebrow">ORGANIZAÇÃO</p><h2>Funções e escala</h2><p>Todos visualizam; somente ADMIN altera.</p></div><div class="admin-only action-row"><button class="secondary" id="newFunctionBtn">＋ Função</button><button class="primary" id="generateRotationBtn">Gerar rotação</button></div></div>
+        <div id="functionsList" class="function-chips"></div>
+        <article class="panel"><div class="panel-head"><div><h2>Escala dos próximos dias</h2></div></div><div id="scheduleList" class="schedule-board"></div></article>
+      </section>
+
+      <section id="catalog" class="view admin-only">
+        <div class="section-head"><div><p class="eyebrow">CONFIGURAÇÃO</p><h2>Catálogos</h2></div></div>
+        <div class="catalog-columns">
+          <article class="panel"><div class="panel-head"><h2>Terras</h2><button class="primary" id="newSoilBtn">＋ Terra</button></div><div id="soilsList"></div></article>
+          <article class="panel"><div class="panel-head"><h2>Planos de molhação</h2><button class="primary" id="newPlanBtn">＋ Plano</button></div><div id="plansList"></div></article>
         </div>
-        <div id="plansTab" class="tab-panel">
-          <div class="panel-head responsive"><div><h2>Planos de molhação</h2><p>Use os predefinidos ou crie uma programação personalizada</p></div><button class="primary" id="newPlanBtn">＋ Plano personalizado</button></div>
-          <div id="plansList" class="catalog-grid"></div>
-        </div>
+      </section>
+
+      <section id="users" class="view admin-only">
+        <div class="section-head"><div><p class="eyebrow">ADMINISTRAÇÃO</p><h2>Usuários do sistema</h2><p>Somente ADMIN pode criar, suspender, reativar ou excluir acessos.</p></div><button class="primary" id="newUserBtn">＋ Novo usuário</button></div>
+        <div id="usersList" class="users-grid"></div>
       </section>
     </main>
   </div>
 
   <dialog id="lotDialog" class="sheet-dialog">
     <form id="lotForm">
-      <div class="dialog-head"><div><p>NOVO REGISTRO</p><h2>Cadastrar lote</h2><small>O código será criado automaticamente ao salvar.</small></div><button type="button" class="icon" data-close="lotDialog">×</button></div>
+      <div class="dialog-head"><div><p class="eyebrow">NOVO LOTE</p><h2>Registrar produção</h2><small>Responsável: <b id="lotResponsible">-</b></small></div><button type="button" class="icon" data-close="lotDialog">×</button></div>
       <div class="form-grid">
-        <label>Código do lote<input value="Gerado automaticamente" disabled></label>
-        <label>Data e hora de fabricação<input name="manufacturedAt" type="datetime-local" required></label>
-        <label>Quantidade de tijolos<input name="quantity" inputmode="numeric" type="number" min="1" required></label>
-        <label>Nome do responsável<input name="responsible" required placeholder="Nome de quem produziu"></label>
-        <label>Terra / origem<select name="soilId" id="soilSelect" required></select><small id="soilInfo" class="field-hint"></small></label>
-        <label>Terra no traço (kg)<input name="soilKg" inputmode="decimal" type="number" min="0" step="0.01" required></label>
-        <label>Areia adicionada (kg)<input name="sandKg" inputmode="decimal" type="number" min="0" step="0.01" value="0" required></label>
-        <label>Cimento (kg)<input name="cementKg" inputmode="decimal" type="number" min="0" step="0.01" required></label>
-        <label>Tipo de cimento<select name="cementType"><option>CP V-ARI</option><option>CP II-F</option><option>CP II-Z</option><option>CP III</option><option>Outro</option></select></label>
-        <label>Material extra (opcional)<input name="extraName" placeholder="Filito, impermeabilizante..."></label>
-        <label>Quantidade extra<input name="extraQty" inputmode="decimal" type="number" min="0" step="0.01" placeholder="Opcional"></label>
-        <label>Unidade do extra<select name="extraUnit"><option value="kg">kg</option><option value="g">g</option><option value="L">L</option><option value="mL">mL</option><option value="%">%</option></select></label>
-        <label>Coeficiente/teor de umidade (%)<input name="moisturePct" inputmode="decimal" type="number" min="0" step="0.01" placeholder="Opcional"></label>
-        <label>Plano de molhação<select name="wateringPlanId" id="wateringPlanSelect" required></select></label>
-        <label>Cura programada (dias)
-          <div class="number-with-presets">
-            <input name="cureDays" id="cureDaysInput" inputmode="numeric" type="number" min="1" max="3650" step="1" required placeholder="Digite a quantidade de dias">
-            <div class="preset-buttons" aria-label="Sugestões de dias">
-              <button type="button" data-cure-days="5">5</button>
-              <button type="button" data-cure-days="15">15</button>
-              <button type="button" data-cure-days="28">28</button>
-              <button type="button" data-cure-days="56">56</button>
-            </div>
-          </div>
-          <small class="field-hint">Digite qualquer período ou use uma das sugestões.</small>
-        </label>
-        <label class="span-2">Observações<textarea name="notes" rows="3" placeholder="Informações adicionais sobre a produção"></textarea></label>
+        <label>Data e hora<input name="manufacturedAt" type="datetime-local" required></label>
+        <label>Turno<select name="shift" required><option value="MANHA">Manhã</option><option value="TARDE">Tarde</option></select></label>
+        <label>Quantidade de tijolos<input name="quantity" type="number" min="1" required></label>
+        <label>Terra / origem<select name="soilId" id="lotSoil" required></select></label>
+        <div class="form-section span-2"><h3>TRAÇO</h3><p>Balde padrão: 18 L. Utilize valores como 0,5 para meio balde.</p></div>
+        <label>Quantidade de Terra - baldes<input name="soilBuckets" type="number" min="0.5" step="0.5" value="4.5" required></label>
+        <label>Quantidade de Areia - baldes<input name="sandBuckets" type="number" min="0" step="0.5" value="0.5" required></label>
+        <label>Quantidade de Cimento - baldes<input name="cementBuckets" type="number" min="0.5" step="0.5" value="0.5" required></label>
+        <label>Tipo de cimento<input name="cementType" value="CP II" list="cementTypes" required><datalist id="cementTypes"><option>CP II</option><option>CP II-F</option><option>CP II-Z</option><option>CP V-ARI</option></datalist></label>
+        <div id="mixProfileBox" class="mix-profile span-2"></div>
+        <label>Outro tipo de material?<select name="hasExtra" id="hasExtra" required><option value="NO" selected>NÃO</option><option value="YES">SIM</option></select></label>
+        <label>Coeficiente de umidade<input name="moisture" type="number" step="0.001" required></label>
+        <div id="extrasWrap" class="span-2 hidden"><div class="panel-head"><h3>Materiais extras</h3><button type="button" class="secondary" id="addExtraBtn">＋ Material</button></div><div id="extrasList"></div></div>
+        <label>Enrolado em plástico-filme?<select name="plasticWrapped" id="plasticWrapped" required><option value="YES" selected>SIM</option><option value="NO">NÃO</option></select></label>
+        <label id="wateringField" class="hidden">Plano de molhação<select name="wateringPlanId" id="wateringPlan"></select></label>
+        <label>Cura programada - dias<input name="cureDays" type="number" min="1" value="28" required></label>
+        <label class="span-2">Observações<textarea name="notes" rows="3"></textarea></label>
       </div>
-      <div class="dialog-actions sticky"><button type="button" class="secondary" data-close="lotDialog">Cancelar</button><button class="primary" type="submit">Salvar lote</button></div>
+      <div class="dialog-actions"><button type="button" class="secondary" data-close="lotDialog">Cancelar</button><button class="primary" type="submit">Salvar lote</button></div>
     </form>
   </dialog>
 
   <dialog id="detailDialog" class="sheet-dialog"><div id="detailContent"></div></dialog>
-  <dialog id="createdDialog" class="small-dialog"><div id="createdContent"></div></dialog>
+  <dialog id="userDialog" class="small-dialog"><form id="userForm"><div class="dialog-head"><h2>Novo usuário</h2><button type="button" class="icon" data-close="userDialog">×</button></div><div class="stack-form"><label>Nome<input name="fullName" required></label><label>Usuário<input name="username" required></label><label>E-mail<input name="email" type="email" required></label><label>Senha inicial<input name="password" type="password" minlength="8" required></label><label>Perfil<select name="role"><option>OPERADOR</option><option>SUPERVISOR</option><option>VISUALIZADOR</option><option>ADMIN</option></select></label><button class="primary" type="submit">Criar usuário</button></div></form></dialog>
+  <dialog id="collaboratorDialog" class="small-dialog"><form id="collaboratorForm"><div class="dialog-head"><h2>Colaborador</h2><button type="button" class="icon" data-close="collaboratorDialog">×</button></div><div class="stack-form"><label>Nome<input name="fullName" required></label><label>Tipo<input name="employmentType" value="DIARISTA" required></label><label>Horas por dia<input name="dailyHours" type="number" value="8" step="0.5" required></label><label>Comissão a cada 1.000 tijolos (R$)<input name="commission" type="number" value="10" step="0.01" required></label><label>Data de início<input name="startDate" type="date" required></label><button class="primary" type="submit">Salvar</button></div></form></dialog>
+  <dialog id="attendanceDialog" class="small-dialog"><form id="attendanceForm"><div class="dialog-head"><h2>Registrar exceção de presença</h2><button type="button" class="icon" data-close="attendanceDialog">×</button></div><input type="hidden" name="collaboratorId"><div class="stack-form"><label>Data<input name="workDate" type="date" required></label><label>Turno<select name="shift"><option value="MANHA">Manhã</option><option value="TARDE">Tarde</option></select></label><label>Situação<select name="status"><option value="ABSENT">Não trabalhou</option><option value="OFF">Off / afastado</option><option value="PRESENT">Presente (correção)</option><option value="EXTRA">Trabalho extraordinário</option></select></label><label>Observação<textarea name="note"></textarea></label><button class="primary" type="submit">Salvar</button></div></form></dialog>
+  <dialog id="functionDialog" class="small-dialog"><form id="functionForm"><div class="dialog-head"><h2>Função</h2><button type="button" class="icon" data-close="functionDialog">×</button></div><div class="stack-form"><label>Nome<input name="name" required></label><label>Tipo<input name="type" value="PRODUCAO"></label><label>Horário inicial<input name="start" type="time"></label><label>Horário final<input name="end" type="time"></label><label>Observações<textarea name="notes"></textarea></label><button class="primary" type="submit">Salvar</button></div></form></dialog>
+  <dialog id="soilDialog" class="small-dialog"><form id="soilForm"><div class="dialog-head"><h2>Nova terra</h2><button type="button" class="icon" data-close="soilDialog">×</button></div><div class="stack-form"><label>Código<input name="code" placeholder="T-02" required></label><label>Nome<input name="name" required></label><label>Origem<input name="origin" required></label><label>Areia (%)<input name="sand" type="number" min="0" max="100" step="0.1" required></label><label>Argila (%)<input name="clay" type="number" min="0" max="100" step="0.1" required></label><button class="primary" type="submit">Salvar</button></div></form></dialog>
+  <dialog id="planDialog" class="small-dialog"><form id="planForm"><div class="dialog-head"><h2>Novo plano</h2><button type="button" class="icon" data-close="planDialog">×</button></div><div class="stack-form"><label>Código<input name="code" required></label><label>Nome<input name="name" required></label><label>Dias<input name="days" type="number" min="0" required></label><label>Horários separados por vírgula<input name="times" placeholder="08:00,16:00"></label><label>Descrição<textarea name="description"></textarea></label><button class="primary" type="submit">Salvar</button></div></form></dialog>
 
-  <dialog id="soilDialog" class="small-dialog">
-    <form id="soilForm"><div class="dialog-head"><div><p>CATÁLOGO</p><h2>Nova terra / origem</h2></div><button type="button" class="icon" data-close="soilDialog">×</button></div>
-      <div class="stack-form"><label>Nome de identificação<input name="name" required placeholder="Ex.: Terra vermelha"></label><label>Origem / jazida<input name="origin" required placeholder="Ex.: Jazida Norte, Irecê"></label><div class="two-fields"><label>Areia presente (%)<input name="sandPct" type="number" min="0" max="100" step="0.1" required></label><label>Argila presente (%)<input name="clayPct" type="number" min="0" max="100" step="0.1" required></label></div><label>Observações<textarea name="notes" rows="3"></textarea></label></div>
-      <div class="dialog-actions"><button type="button" class="secondary" data-close="soilDialog">Cancelar</button><button class="primary" type="submit">Cadastrar terra</button></div></form>
-  </dialog>
+  <div id="toast" class="toast"></div>
+  <div id="loading" class="loading hidden"><div><span></span><strong>Aguarde...</strong><small id="loadingText">Atualizando dados</small></div></div>
 
-  <dialog id="planDialog" class="small-dialog">
-    <form id="planForm"><div class="dialog-head"><div><p>CATÁLOGO</p><h2>Plano personalizado</h2></div><button type="button" class="icon" data-close="planDialog">×</button></div>
-      <div class="stack-form"><label>Nome do plano<input name="name" required placeholder="Ex.: Molhação especial"></label><label>Quantidade de dias<input name="days" type="number" min="1" max="60" required></label><label>Horários de cada dia<input name="times" required placeholder="Ex.: 07:00, 12:00, 17:00"><small class="field-hint">Separe os horários por vírgula.</small></label><label>Descrição<textarea name="description" rows="3" placeholder="Instruções para o operador"></textarea></label></div>
-      <div class="dialog-actions"><button type="button" class="secondary" data-close="planDialog">Cancelar</button><button class="primary" type="submit">Criar plano</button></div></form>
-  </dialog>
-
-  <dialog id="accountDialog" class="small-dialog">
-    <div class="dialog-head"><div><p>CONTA</p><h2>Segurança</h2></div><button type="button" class="icon" data-close="accountDialog">×</button></div>
-    <div class="account-info"><strong id="accountDialogName"></strong><span id="accountDialogEmail"></span></div><div class="helper-box"><strong>Como alterar o acesso</strong><span>1. Informe o novo usuário e a nova senha. 2. Clique em “Enviar código”. 3. Digite o código recebido no e-mail administrativo. 4. Confirme a alteração.</span></div>
-    <form id="passwordForm" class="stack-form"><label>Novo usuário de acesso<input name="newUsername" minlength="4" required></label><label>Nova senha<input name="newPassword" type="password" minlength="8" required></label><label>Repetir nova senha<input name="confirmPassword" type="password" minlength="8" required></label><div class="verification-row"><label>Código recebido por e-mail<input name="verificationCode" inputmode="numeric" maxlength="6" required placeholder="000000"></label><button id="sendCodeBtn" class="secondary" type="button">Enviar código</button></div><small class="field-hint">O código será enviado somente para wftijolosecologicos@gmail.com.</small><button class="primary" type="submit">Alterar login e senha</button><div id="passwordMessage" class="form-message"></div></form>
-    <button id="logoutBtn" class="danger ghost wide">Sair do sistema</button>
-  </dialog>
-
-  
-  <dialog id="forgotDialog" class="small-dialog">
-    <form id="forgotForm">
-      <div class="dialog-head"><div><p>RECUPERAÇÃO DE ACESSO</p><h2>Esqueci minha senha</h2></div><button type="button" class="icon" data-close="forgotDialog">×</button></div>
-      <div class="recovery-steps">
-        <div class="step active"><b>1</b><span>Enviar código</span></div><div class="step"><b>2</b><span>Criar novo acesso</span></div>
-      </div>
-      <div class="stack-form">
-        <p class="helper-box">O código será enviado exclusivamente para <strong>wftijolosecologicos@gmail.com</strong>.</p>
-        <button id="forgotSendCodeBtn" class="secondary wide" type="button">Enviar código por e-mail</button>
-        <label>Código recebido<input name="verificationCode" inputmode="numeric" maxlength="6" required placeholder="000000"></label>
-        <label>Novo usuário<input name="newUsername" minlength="4" required placeholder="Ex.: admin"></label>
-        <label>Nova senha<input name="newPassword" type="password" minlength="8" required></label>
-        <label>Repita a nova senha<input name="confirmPassword" type="password" minlength="8" required></label>
-        <button class="primary wide" type="submit">Redefinir acesso</button>
-        <div id="forgotMessage" class="form-message"></div>
-      </div>
-    </form>
-  </dialog>
-
-  <dialog id="chartDialog" class="analytics-dialog">
-    <div id="chartDetailContent" class="analytics-dialog-content"></div>
-  </dialog>
-
-  <div id="loadingOverlay" class="loading-overlay hidden" aria-live="polite">
-    <div class="loading-card"><span class="spinner"></span><strong id="loadingTitle">Aguarde, estamos atualizando os dados</strong><small id="loadingSubtitle">Isso pode levar alguns segundos.</small></div>
-  </div>
-
-  <div id="toast" class="toast" role="status"></div>
-  <script src="config.js?v=310"></script>
-  <script src="app.js?v=310"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js?v=400"></script>
+  <script src="app.js?v=400"></script>
 </body>
 </html>

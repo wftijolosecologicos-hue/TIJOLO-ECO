@@ -1,11 +1,9 @@
 {
-  "name":"TerraLote — Controle de Produção e Cura",
+  "name":"TerraLote - Produção e Gestão",
   "short_name":"TerraLote",
   "start_url":"./",
-  "scope":"./",
   "display":"standalone",
-  "background_color":"#f5f2e9",
+  "background_color":"#f4f4ef",
   "theme_color":"#123f35",
-  "description":"Controle de lotes, traços, molhações e cura de tijolos ecológicos.",
-  "icons":[]
+  "description":"Controle institucional de produção, cura, colaboradores e comissão."
 }
