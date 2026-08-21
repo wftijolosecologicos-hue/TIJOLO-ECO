@@ -510,3 +510,6 @@ async function init(){
   }
   if('serviceWorker'in navigator)navigator.serviceWorker.register('service-worker.js?v=440')
 }
+
+// V8.4.1 - inicia o TerraLote após carregar o arquivo
+init();

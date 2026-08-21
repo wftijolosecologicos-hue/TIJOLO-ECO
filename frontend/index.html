@@ -16,7 +16,7 @@
       <div class="login-brand"><span class="brand-mark">T</span><div><strong>TerraLote</strong><small>Produção, cura e equipe</small></div></div>
       <h1>Acesso ao sistema</h1>
       <p>Entre com seu usuário e sua senha.</p>
-      <form id="loginForm" class="stack-form">
+      <form id="loginForm" class="stack-form" onsubmit="return false">
         <label>Usuário<input name="login" autocomplete="username" required></label>
         <label>Senha<input name="password" type="password" autocomplete="current-password" required></label>
         <button class="primary wide" type="submit">Entrar</button>
@@ -246,7 +246,12 @@
   <div id="loading" class="loading hidden"><div><span></span><strong>Aguarde...</strong><small id="loadingText">Atualizando dados</small></div></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    if (!window.supabase) {
+      document.write('<script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js"><\/script>');
+    }
+  </script>
   <script src="config.js?v=440"></script>
-  <script src="app.js?v=440"></script>
+  <script src="app.js?v=441"></script>
 </body>
 </html>
