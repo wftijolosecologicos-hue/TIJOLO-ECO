@@ -1,226 +1,38 @@
-// TerraLote V8.6 — patch pontual
-// Carregar DEPOIS de app.js e v85-patch.js.
+// TerraLote V8.6.1 — ajustes visuais e custo por 1.000 tijolos
+// Carregar DEPOIS de v86-patch.js.
 
 (() => {
   'use strict';
 
-  const V86 = {
+  const V861 = {
     monday(d=new Date()){
       const x=new Date(d);x.setHours(12,0,0,0);
-      const dow=x.getDay();
-      x.setDate(x.getDate()-(dow===0?6:dow-1));
-      return x;
+      const dow=x.getDay();x.setDate(x.getDate()-(dow===0?6:dow-1));return x;
     },
-    addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x},
-    key(d){return isoDate(d)},
+    dateKey(d){return isoDate(d)},
     weekDates(){
       const m=this.monday();
-      return [0,1,2,3,4].map(i=>this.key(this.addDays(m,i)));
-    },
-    weekendExtraDates(){
-      const m=this.monday(), sat=this.key(this.addDays(m,5)), sun=this.key(this.addDays(m,6));
-      return [sat,sun].filter(d =>
-        APP.attendance.some(a=>a.work_date===d&&a.status==='EXTRA') ||
-        APP.assignments.some(a=>a.work_date===d)
-      );
-    },
-    defaultRecipe(){
-      return APP.recipes.find(r=>r.code==='9-1-1'&&r.active!==false) ||
-             APP.recipes.find(r=>r.is_default&&r.active!==false) ||
-             APP.recipes.find(r=>r.active!==false);
+      return Array.from({length:7},(_,i)=>{const d=new Date(m);d.setDate(m.getDate()+i);return this.dateKey(d)});
     }
   };
 
   // ============================================================
-  // 1) NOVO LOTE — APENAS 9-1-1, 8-2-1 E 10-1
-  // ============================================================
-
-  window.populateLotOptions = function(){
-    $('#lotSoil').innerHTML=APP.soils.map(s=>
-      `<option value="${s.id}">${esc(s.code)} · ${esc(s.name)} · ${esc(s.origin)}</option>`
-    ).join('');
-
-    $('#wateringPlan').innerHTML=APP.plans.map(p=>{
-      const days=num(p.days);
-      return `<option value="${p.id}">${esc(p.name)}${days>0?` · ${days} dia${days===1?'':'s'}`:' · sem molhação'}</option>`;
-    }).join('');
-
-    const allowed=['9-1-1','8-2-1','10-1'];
-    const recipes=APP.recipes
-      .filter(r=>allowed.includes(r.code)&&r.active!==false)
-      .sort((a,b)=>allowed.indexOf(a.code)-allowed.indexOf(b.code));
-
-    $('#recipeSelect').innerHTML=recipes.map(r=>
-      `<option value="${r.id}" ${r.code==='9-1-1'?'selected':''}>${esc(r.code)}</option>`
-    ).join('');
-
-    const def=V86.defaultRecipe();
-    if(def)$('#recipeSelect').value=def.id;
-    updateRecipeSummary();
-  };
-
-  const oldSetDefaultLot=window.setDefaultLot;
-  window.setDefaultLot=function(){
-    if(oldSetDefaultLot)oldSetDefaultLot();
-    const def=V86.defaultRecipe();
-    if(def)$('#recipeSelect').value=def.id;
-    updateRecipeSummary();
-  };
-
-  // ============================================================
-  // 2) IMPRESSÃO DE LOTE — SOMENTE A FICHA DO LOTE
-  // ============================================================
-
-  function printLotRecord(l,extras=[],recipe=null){
-    const recipeText=recipe
-      ? `${esc(recipe.code)} · ${recipeLabel(recipe)}`
-      : `${num(l.soil_buckets)} terra · ${num(l.sand_buckets)} areia · ${num(l.cement_buckets)} cimento`;
-
-    const extraHtml=extras.length
-      ? `<section><h2>Materiais extras</h2>${extras.map(x=>`<p><b>${esc(x.material_name)}</b> — ${qty(x.quantity)} ${esc(x.unit)}</p>`).join('')}${l.moisture_coefficient!=null?`<p>Coeficiente de umidade: <b>${esc(l.moisture_coefficient)}</b></p>`:''}</section>`
-      : '';
-
-    const html=`<!doctype html><html><head><meta charset="utf-8"><title>Lote ${esc(l.lot_code)}</title>
-    <style>
-      @page{size:A4;margin:16mm}
-      *{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#14231f;margin:0;background:#fff}
-      .sheet{max-width:760px;margin:auto}.brand{border-bottom:3px solid #164c40;padding-bottom:12px;margin-bottom:20px}
-      .brand small{font-size:10px;letter-spacing:.14em;color:#65756f}.brand h1{margin:5px 0 0;font-size:25px}
-      .code{font-size:33px;font-weight:800;letter-spacing:.03em;color:#123f35;margin:18px 0}
-      .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.cell{border:1px solid #d9e1de;border-radius:9px;padding:11px;min-height:62px}
-      .cell small{display:block;text-transform:uppercase;font-size:8px;letter-spacing:.08em;color:#6c7975;margin-bottom:6px}
-      .cell strong{font-size:13px}section{margin-top:18px;border-top:1px solid #d9e1de;padding-top:13px}section h2{font-size:13px;margin:0 0 9px}
-      section p{font-size:11px;margin:5px 0}.foot{margin-top:28px;border-top:1px solid #d9e1de;padding-top:8px;font-size:8px;color:#74807c;display:flex;justify-content:space-between}
-      @media print{body{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
-    </style></head><body><div class="sheet">
-      <div class="brand"><small>TERRALOTE · RASTREABILIDADE</small><h1>Ficha do lote</h1></div>
-      <div class="code">${esc(l.lot_code)}</div>
-      <div class="grid">
-        <div class="cell"><small>Fabricação</small><strong>${dateBR(l.manufactured_at,true)}</strong></div>
-        <div class="cell"><small>Turno</small><strong>${shiftLabel(l.shift)}</strong></div>
-        <div class="cell"><small>Quantidade</small><strong>${qty(l.quantity)} tijolos</strong></div>
-        <div class="cell"><small>Responsável</small><strong>${esc(l.responsible_snapshot)}</strong></div>
-        <div class="cell"><small>Terra / origem</small><strong>${esc(l.soil_code||l.soil_name||'—')}</strong></div>
-        <div class="cell"><small>Cura programada</small><strong>${num(l.cure_days)} dias</strong></div>
-      </div>
-      <section><h2>Traço</h2><p><b>${recipeText}</b></p><p>Tipo de cimento: <b>${esc(l.cement_type||'—')}</b></p></section>
-      <section><h2>Proteção e molhação</h2><p>Plástico-filme: <b>${l.plastic_wrapped?'SIM':'NÃO'}</b></p>${!l.plastic_wrapped&&l.watering_plan_name?`<p>Plano: <b>${esc(l.watering_plan_name)}</b></p>`:''}</section>
-      ${extraHtml}
-      ${l.notes?`<section><h2>Observações</h2><p>${esc(l.notes)}</p></section>`:''}
-      <div class="foot"><span>TerraLote · Controle institucional</span><span>Impresso em ${new Date().toLocaleString('pt-BR')}</span></div>
-    </div><script>window.onload=()=>setTimeout(()=>window.print(),120);<\/script></body></html>`;
-
-    const w=window.open('','_blank','width=900,height=760');
-    if(!w)return toast('O navegador bloqueou a janela de impressão.',true);
-    w.document.open();w.document.write(html);w.document.close();
-  }
-
-  window.showLotDetail=async function(id){
-    const l=APP.lots.find(x=>x.id===id)||(await sb.from('v_lot_operational').select('*').eq('id',id).single()).data;
-    if(!l)return;
-    const [{data:extras},{data:rawLot}]=await Promise.all([
-      sb.from('lot_extra_materials').select('*').eq('lot_id',id),
-      sb.from('lots').select('*').eq('id',id).single()
-    ]);
-    const merged={...rawLot,...l};
-    const r=APP.recipes.find(x=>x.id===merged.recipe_id);
-    const recipeText=r?`${esc(r.code)} · ${recipeLabel(r)}`:`${merged.soil_buckets} terra · ${merged.sand_buckets} areia · ${merged.cement_buckets} cimento`;
-
-    $('#detailContent').innerHTML=`<div class="dialog-head"><div><p class="eyebrow">RASTREABILIDADE</p><h2>${esc(merged.lot_code)}</h2></div><button class="icon" data-close="detailDialog">×</button></div>
-      <div class="detail-grid">
-        <div class="detail-cell"><small>Fabricação</small><strong>${dateBR(merged.manufactured_at,true)}</strong></div>
-        <div class="detail-cell"><small>Turno</small><strong>${shiftLabel(merged.shift)}</strong></div>
-        <div class="detail-cell"><small>Produção</small><strong>${qty(merged.quantity)}</strong></div>
-        <div class="detail-cell"><small>Responsável</small><strong>${esc(merged.responsible_snapshot)}</strong></div>
-        <div class="detail-cell"><small>Terra</small><strong>${esc(merged.soil_code||'')}</strong></div>
-        <div class="detail-cell"><small>Cura</small><strong>${merged.cure_days} dias</strong></div>
-      </div>
-      <h3>Traço</h3><p><strong>${recipeText}</strong> · Cimento ${esc(merged.cement_type)}</p>
-      ${extras?.length?`<h3>Materiais extras</h3><p>${extras.map(x=>`${esc(x.material_name)}: ${x.quantity} ${esc(x.unit)}`).join(' · ')}</p>${merged.moisture_coefficient!=null?`<p>Coeficiente de umidade: <strong>${merged.moisture_coefficient}</strong></p>`:''}`:''}
-      <p>Plástico-filme: <strong>${merged.plastic_wrapped?'SIM':'NÃO'}</strong></p>
-      <div class="dialog-actions">
-        <button class="secondary" id="v86PrintLot">Imprimir ficha</button>
-        ${(isAdmin()||APP.profile?.can_delete_lots)?`<button class="secondary danger-action" data-delete-lot="${merged.id}">Excluir lote</button>`:''}
-      </div>`;
-
-    $('#v86PrintLot').onclick=()=>printLotRecord(merged,extras||[],r);
-    $('#detailDialog').showModal();
-  };
-
-  // ============================================================
-  // 3) CALENDÁRIO — ADMIN CLICA DIRETO NO TURNO
-  // ============================================================
-
-  function addAttendanceClearButton(){
-    const f=$('#attendanceForm');
-    if(!f||$('#v86ClearAttendance'))return;
-    const btn=document.createElement('button');
-    btn.type='button';btn.id='v86ClearAttendance';btn.className='secondary danger-action';
-    btn.textContent='Remover marcação';
-    btn.onclick=async()=>{
-      const id=f.elements.collaboratorId.value,date=f.elements.workDate.value,shift=f.elements.shift.value;
-      if(!id||!date||!shift)return;
-      const {error}=await sb.from('attendance_exceptions')
-        .delete().eq('collaborator_id',id).eq('work_date',date).eq('shift',shift);
-      if(error)return toast(error.message,true);
-      if([0,6].includes(new Date(date+'T12:00').getDay())){
-        await sb.rpc('refresh_extra_schedule_for_day',{p_work_date:date});
-      }
-      $('#attendanceDialog').close();toast('Marcação removida.');bootstrap();
-    };
-    const submit=f.querySelector('button[type=submit]');
-    submit?.parentNode?.insertBefore(btn,submit);
-  }
-  addAttendanceClearButton();
-
-  function openCalendarAttendance(collabId,date,shift){
-    if(!isAdmin())return;
-    const f=$('#attendanceForm'),existing=APP.attendance.find(a=>a.collaborator_id===collabId&&a.work_date===date&&a.shift===shift);
-    f.elements.collaboratorId.value=collabId;
-    f.elements.workDate.value=date;
-    f.elements.shift.value=shift;
-    f.elements.status.value=existing?.status||([0,6].includes(new Date(date+'T12:00').getDay())?'EXTRA':'ABSENT');
-    f.elements.note.value=existing?.note||'';
-    $('#v86ClearAttendance').classList.toggle('hidden',!existing);
-    $('#attendanceDialog').showModal();
-  }
-
-  // Substitui o save de presença para recalcular sábado/domingo automaticamente.
-  $('#attendanceForm').addEventListener('submit',async e=>{
-    e.preventDefault();e.stopImmediatePropagation();
-    const f=new FormData(e.currentTarget);
-    const payload={
-      collaborator_id:f.get('collaboratorId'),
-      work_date:f.get('workDate'),
-      shift:f.get('shift'),
-      status:f.get('status'),
-      note:f.get('note')||null,
-      created_by:APP.profile.id
-    };
-    const {error}=await sb.from('attendance_exceptions').upsert(payload,{onConflict:'collaborator_id,work_date,shift'});
-    if(error)return toast(error.message,true);
-    if([0,6].includes(new Date(payload.work_date+'T12:00').getDay())){
-      const {error:extraError}=await sb.rpc('refresh_extra_schedule_for_day',{p_work_date:payload.work_date});
-      if(extraError)console.error(extraError);
-    }
-    $('#attendanceDialog').close();toast('Calendário atualizado.');bootstrap();
-  },true);
-
-  // ============================================================
-  // 4) CALENDÁRIO SEMANAL: SEGUNDA → DOMINGO
+  // 1) CALENDÁRIO — VOLTA AO VISUAL ANTERIOR
+  //    ADMIN continua podendo clicar, mas sem "cara de botão".
   // ============================================================
 
   window.renderDashboardTeam=function(){
-    const weekDays=[...V86.weekDates(),...[
-      V86.key(V86.addDays(V86.monday(),5)),
-      V86.key(V86.addDays(V86.monday(),6))
-    ]];
+    const allWeek=V861.weekDates();
+    const weekdays=allWeek.slice(0,5);
+    const extras=allWeek.slice(5).filter(d =>
+      APP.attendance.some(a=>a.work_date===d&&a.status==='EXTRA') ||
+      APP.assignments.some(a=>a.work_date===d)
+    );
+    const scheduleDates=[...weekdays,...extras];
 
-    // Escala da visão geral: semana operacional completa + extras.
-    const scheduleDates=[...V86.weekDates(),...V86.weekendExtraDates()];
     $('#dashboardSchedule').innerHTML=scheduleDates.map(d=>{
       const rows=APP.assignments.filter(a=>a.work_date===d);
-      return `<section class="dash-schedule-day ${rows.length?'':'v86-empty-day'}">
+      return `<section class="dash-schedule-day ${rows.length?'':'v861-empty-day'}">
         <header><strong>${new Date(d+'T12:00').toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'2-digit'})}</strong></header>
         ${['MANHA','TARDE'].map(sh=>{
           const groups=groupAssignments(rows.filter(a=>a.shift===sh));
@@ -230,99 +42,184 @@
     }).join('');
 
     const collabs=APP.collaborators.filter(c=>c.status!=='INACTIVE');
-    const head=weekDays.map(d=>`<span>${new Date(d+'T12:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit'})}</span>`).join('');
+    const head=allWeek.map(d=>`<span>${new Date(d+'T12:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit'})}</span>`).join('');
+
     const rows=collabs.map(c=>{
-      const cells=weekDays.map(d=>{
+      const cells=allWeek.map(d=>{
         const m=attendanceState(c.id,d,'MANHA'),t=attendanceState(c.id,d,'TARDE');
+        const clickClass=isAdmin()?' v861-admin-calendar':'';
         return `<div class="attendance-day">
-          <button type="button" class="${attendanceClass(m.status)} v86-calendar-shift" data-calendar-collab="${c.id}" data-calendar-date="${d}" data-calendar-shift="MANHA"><b>MANHÃ</b> ${attendanceShort(m.status)}${m.note?`<small>${esc(m.note)}</small>`:''}</button>
-          <button type="button" class="${attendanceClass(t.status)} v86-calendar-shift" data-calendar-collab="${c.id}" data-calendar-date="${d}" data-calendar-shift="TARDE"><b>TARDE</b> ${attendanceShort(t.status)}${t.note?`<small>${esc(t.note)}</small>`:''}</button>
+          <span class="${attendanceClass(m.status)}${clickClass}" data-v861-collab="${c.id}" data-v861-date="${d}" data-v861-shift="MANHA"><b>MANHÃ</b> ${attendanceShort(m.status)}${m.note?`<small>${esc(m.note)}</small>`:''}</span>
+          <span class="${attendanceClass(t.status)}${clickClass}" data-v861-collab="${c.id}" data-v861-date="${d}" data-v861-shift="TARDE"><b>TARDE</b> ${attendanceShort(t.status)}${t.note?`<small>${esc(t.note)}</small>`:''}</span>
         </div>`;
       }).join('');
       return `<div class="attendance-row"><strong>${esc(c.full_name)}</strong>${cells}</div>`;
     }).join('');
+
     const calendar=`<div class="attendance-table"><div class="attendance-head"><span>Colaborador</span>${head}</div>${rows}</div>`;
     $('#weeklyAttendance').innerHTML=calendar;
     if($('#weeklyCalendarFull'))$('#weeklyCalendarFull').innerHTML=calendar;
   };
 
   document.addEventListener('click',e=>{
-    const c=e.target.closest('.v86-calendar-shift');
-    if(c&&isAdmin()){
-      e.preventDefault();e.stopPropagation();
-      openCalendarAttendance(c.dataset.calendarCollab,c.dataset.calendarDate,c.dataset.calendarShift);
-    }
+    const x=e.target.closest('.v861-admin-calendar');
+    if(!x||!isAdmin())return;
+    e.preventDefault();e.stopPropagation();
+    const f=$('#attendanceForm');
+    const existing=APP.attendance.find(a=>a.collaborator_id===x.dataset.v861Collab&&a.work_date===x.dataset.v861Date&&a.shift===x.dataset.v861Shift);
+    f.elements.collaboratorId.value=x.dataset.v861Collab;
+    f.elements.workDate.value=x.dataset.v861Date;
+    f.elements.shift.value=x.dataset.v861Shift;
+    f.elements.status.value=existing?.status||([0,6].includes(new Date(x.dataset.v861Date+'T12:00').getDay())?'EXTRA':'ABSENT');
+    f.elements.note.value=existing?.note||'';
+    const clear=$('#v86ClearAttendance');if(clear)clear.classList.toggle('hidden',!existing);
+    $('#attendanceDialog').showModal();
   },true);
 
   // ============================================================
-  // 5) ESCALA — SEMANA COMPLETA + FUNÇÕES MELHOR ORGANIZADAS
+  // 2) FUNÇÕES — DUAS COLUNAS SIMÉTRICAS
   // ============================================================
 
-  window.openRotationDialog=function(){
-    const monday=V86.key(V86.monday());
-    $('#rotationForm [name=startDate]').value=monday;
-    const daysField=$('#rotationForm [name=days]');
-    if(daysField){daysField.value='5';daysField.readOnly=true;}
-
-    const prod=APP.functions.filter(f=>f.function_type==='PRODUCAO');
-    const accum=APP.functions.filter(f=>f.function_type==='ACUMULAVEL');
-
-    $('#rotationAccumFunctions').innerHTML=`
-      <div class="v86-rotation-block">
-        <div class="v86-rotation-title"><span>1</span><div><strong>Funções de produção</strong><small>Rodízio obrigatório · uma função por colaborador/turno</small></div></div>
-        <div class="v86-production-pills">${prod.map((f,i)=>`<span><b>${i+1}</b>${esc(f.name)}</span>`).join('')}</div>
-      </div>
-      <div class="v86-rotation-block">
-        <div class="v86-rotation-title"><span>2</span><div><strong>Funções acumuláveis</strong><small>Selecione apenas as que devem entrar nesta semana</small></div></div>
-        <div class="v86-accum-list">${accum.map(f=>`<label>
-          <input type="checkbox" value="${f.id}">
-          <div><strong>${esc(f.name)}</strong><small>${timeHM(f.morning_start)||'07:00'}–${timeHM(f.morning_end)||'07:20'} · ${timeHM(f.afternoon_start)||'17:00'}–${timeHM(f.afternoon_end)||'17:20'}</small></div>
-        </label>`).join('')||'<small>Nenhuma função acumulável cadastrada.</small>'}</div>
-      </div>
-      <div class="v86-week-note"><strong>Semana:</strong> segunda a sexta. Sábado/domingo entram automaticamente quando você marcar trabalho EXTRA no Calendário.</div>`;
-    $('#rotationDialog').showModal();
-  };
-  $('#generateRotationBtn').onclick=openRotationDialog;
-
   window.renderSchedule=function(){
-    const dates=[...V86.weekDates(),...V86.weekendExtraDates()];
+    const week=V861.weekDates();
+    const weekdays=week.slice(0,5);
+    const extras=week.slice(5).filter(d=>APP.attendance.some(a=>a.work_date===d&&a.status==='EXTRA')||APP.assignments.some(a=>a.work_date===d));
+    const dates=[...weekdays,...extras];
     const prod=APP.functions.filter(f=>f.function_type==='PRODUCAO');
     const accum=APP.functions.filter(f=>f.function_type==='ACUMULAVEL');
 
-    $('#functionsList').innerHTML=`
-      <div class="v86-functions-wrap">
-        <section class="v86-functions-section">
-          <div class="v86-functions-head"><div><small>PRODUÇÃO</small><h3>Funções do rodízio</h3><p>Sem horário individual. Uma função de produção por colaborador em cada turno.</p></div><span>${prod.length}</span></div>
-          <div class="v86-functions-grid">${prod.map(f=>`<article><div><strong>${esc(f.name)}</strong><small>Produção</small></div>${isAdmin()?`<div class="v86-function-actions"><button class="secondary v85-edit-function" data-function-id="${f.id}">Editar</button><button class="danger-action v85-delete-function" data-function-id="${f.id}">Excluir</button></div>`:''}</article>`).join('')}</div>
-        </section>
-        <section class="v86-functions-section v86-accum-section">
-          <div class="v86-functions-head"><div><small>ACUMULÁVEIS</small><h3>Responsabilidades adicionais</h3><p>Podem acompanhar uma função de produção.</p></div><span>${accum.length}</span></div>
-          <div class="v86-functions-grid">${accum.map(f=>`<article><div><strong>${esc(f.name)}</strong><small>${timeHM(f.morning_start)||'07:00'}–${timeHM(f.morning_end)||'07:20'} · ${timeHM(f.afternoon_start)||'17:00'}–${timeHM(f.afternoon_end)||'17:20'}</small></div>${isAdmin()?`<div class="v86-function-actions"><button class="secondary v85-edit-function" data-function-id="${f.id}">Editar</button><button class="danger-action v85-delete-function" data-function-id="${f.id}">Excluir</button></div>`:''}</article>`).join('')}</div>
-        </section>
-      </div>`;
+    const renderFunctionCards=(items,type)=>items.map(f=>`<article class="v861-fcard">
+      <div class="v861-fmeta">
+        <strong>${esc(f.name)}</strong>
+        <small>${type==='PRODUCAO'?'Função de produção':`${timeHM(f.morning_start)||'07:00'}–${timeHM(f.morning_end)||'07:20'} · ${timeHM(f.afternoon_start)||'17:00'}–${timeHM(f.afternoon_end)||'17:20'}`}</small>
+      </div>
+      ${isAdmin()?`<div class="v861-factions"><button class="secondary v85-edit-function" data-function-id="${f.id}">Editar</button><button class="danger-action v85-delete-function" data-function-id="${f.id}">Excluir</button></div>`:''}
+    </article>`).join('')||'<div class="empty-state">Nenhuma função cadastrada.</div>';
+
+    $('#functionsList').innerHTML=`<div class="v861-function-columns">
+      <section class="v861-function-panel">
+        <header><div><p>RODÍZIO</p><h3>Funções de produção</h3><small>Uma por colaborador em cada turno.</small></div><b>${prod.length}</b></header>
+        <div class="v861-function-list">${renderFunctionCards(prod,'PRODUCAO')}</div>
+      </section>
+      <section class="v861-function-panel v861-function-panel-accum">
+        <header><div><p>ADICIONAIS</p><h3>Responsabilidades adicionais</h3><small>Acumuladas junto à função principal.</small></div><b>${accum.length}</b></header>
+        <div class="v861-function-list">${renderFunctionCards(accum,'ACUMULAVEL')}</div>
+      </section>
+    </div>`;
 
     $('#scheduleList').innerHTML=dates.map(d=>{
       const sh={MANHA:APP.assignments.filter(a=>a.work_date===d&&a.shift==='MANHA'),TARDE:APP.assignments.filter(a=>a.work_date===d&&a.shift==='TARDE')};
-      const dow=new Date(d+'T12:00').getDay();
-      const extra=dow===0||dow===6;
-      return `<section class="schedule-day ${extra?'v86-extra-day':''}">
-        <div class="v86-day-head"><h3>${new Date(d+'T12:00').toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long'})}</h3>${extra?'<span>EXTRA</span>':''}</div>
-        <div class="schedule-shifts">${['MANHA','TARDE'].map(shift=>`<div class="schedule-shift"><h4>${shift==='MANHA'?'Manhã':'Tarde'}</h4>${
-          groupAssignments(sh[shift]).map(g=>`<div class="assignment multi"><strong>${esc(g.name)}</strong><div class="assignment-functions">${g.items.map(a=>`<span class="${a.work_functions?.function_type==='ACUMULAVEL'?'accum':''}">${esc(functionAssignmentLabel(a))}${isAdmin()?`<button data-delete-assignment="${a.id}" title="Remover">×</button>`:''}</span>`).join('')}</div></div>`).join('')||'<div class="v86-no-assignment">Sem atribuição</div>'
-        }</div>`).join('')}</div>
+      const weekend=[0,6].includes(new Date(d+'T12:00').getDay());
+      return `<section class="schedule-day ${weekend?'v86-extra-day':''}">
+        <div class="v86-day-head"><h3>${new Date(d+'T12:00').toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long'})}</h3>${weekend?'<span>EXTRA</span>':''}</div>
+        <div class="schedule-shifts">${['MANHA','TARDE'].map(shift=>`<div class="schedule-shift"><h4>${shift==='MANHA'?'Manhã':'Tarde'}</h4>${groupAssignments(sh[shift]).map(g=>`<div class="assignment multi"><strong>${esc(g.name)}</strong><div class="assignment-functions">${g.items.map(a=>`<span class="${a.work_functions?.function_type==='ACUMULAVEL'?'accum':''}">${esc(functionAssignmentLabel(a))}${isAdmin()?`<button data-delete-assignment="${a.id}">×</button>`:''}</span>`).join('')}</div></div>`).join('')||'<div class="v86-no-assignment">Sem atribuição</div>'}</div>`).join('')}</div>
       </section>`;
     }).join('');
   };
 
   // ============================================================
-  // 6) CUSTOS — VOLTA À BASE INSTITUCIONAL, MAIS PROFISSIONAL
+  // 3) CUSTOS — REMOVE "+ INSUMO" E EVOLUI FORMULÁRIO
   // ============================================================
 
-  let costDetailData=null;
+  const insumoBtn=$('#newCostItemBtn');
+  if(insumoBtn)insumoBtn.remove();
+
+  function enhanceCostForm(){
+    const f=$('#costForm');if(!f||f.dataset.v861Ready)return;
+    f.dataset.v861Ready='1';
+
+    // Torna o catálogo existente opcional e menos central.
+    const itemField=$('#costItemField');
+    if(itemField){
+      const txt=itemField.firstChild;
+      if(txt&&txt.nodeType===3)txt.textContent='Insumo cadastrado (opcional)';
+    }
+
+    const quantity=f.elements.quantity;
+    const unit=f.elements.unit;
+    const total=f.elements.totalAmount;
+
+    if(quantity){
+      const label=quantity.closest('label');
+      if(label&&label.firstChild)label.firstChild.textContent='Quantidade comprada';
+    }
+    if(total){
+      const label=total.closest('label');
+      if(label&&label.firstChild)label.firstChild.textContent='Valor total da compra (R$)';
+      total.readOnly=true;
+    }
+
+    if(!f.elements.unitPrice){
+      const label=document.createElement('label');
+      label.innerHTML='Preço por unidade (R$)<input name="unitPrice" type="number" min="0" step="0.0001" value="0" required>';
+      total.closest('label').before(label);
+    }
+
+    if(!f.elements.quantityPer1000){
+      const label=document.createElement('label');
+      label.innerHTML='Quantidade usada para 1.000 tijolos<input name="quantityPer1000" type="number" min="0" step="0.0001" value="0"><small class="field-hint">Use a mesma unidade informada acima. Ex.: sacos, kg, m³, litros.</small>';
+      total.closest('label').before(label);
+    }
+
+    if(!$('#v861CostCalc')){
+      const box=document.createElement('div');
+      box.id='v861CostCalc';box.className='v861-cost-calc';
+      box.innerHTML=`<div><small>Valor da compra</small><strong id="v861PurchaseCost">R$ 0,00</strong></div><div><small>Custo do material / 1.000 tijolos</small><strong id="v861Cost1000">R$ 0,00</strong></div>`;
+      total.closest('label').after(box);
+    }
+
+    const calc=()=>{
+      const q=num(f.elements.quantity?.value),price=num(f.elements.unitPrice?.value),q1000=num(f.elements.quantityPer1000?.value);
+      const purchase=q*price,cost1000=q1000*price;
+      if(f.elements.totalAmount)f.elements.totalAmount.value=purchase.toFixed(2);
+      $('#v861PurchaseCost').textContent=money(purchase);
+      $('#v861Cost1000').textContent=money(cost1000);
+    };
+    ['quantity','unitPrice','quantityPer1000'].forEach(n=>f.elements[n]?.addEventListener('input',calc));
+    unit?.addEventListener('input',calc);
+    calc();
+  }
+  enhanceCostForm();
+
+  // Abre o formulário já preparado.
+  if($('#newCostBtn')){
+    $('#newCostBtn').onclick=()=>{
+      const f=$('#costForm');f.reset();f.costDate.value=isoDate(new Date());$('#costCategory').value='CEMENT';populateCostItems();enhanceCostForm();
+      f.elements.unitPrice.value='0';f.elements.quantityPer1000.value='0';f.elements.totalAmount.value='0';
+      $('#v861PurchaseCost').textContent=money(0);$('#v861Cost1000').textContent=money(0);
+      $('#costDialog').showModal();
+    };
+  }
+
+  // Intercepta o submit para salvar os novos campos.
+  $('#costForm').addEventListener('submit',async e=>{
+    e.preventDefault();e.stopImmediatePropagation();
+    const f=new FormData(e.currentTarget),cat=f.get('category'),needs=['CEMENT','SOIL','SAND','MATERIAL'].includes(cat);
+    const q=num(f.get('quantity')),unitPrice=num(f.get('unitPrice')),q1000=num(f.get('quantityPer1000'));
+    const payload={
+      cost_date:f.get('costDate'),
+      category:cat,
+      catalog_item_id:needs?(f.get('catalogItemId')||null):null,
+      description:f.get('description')||null,
+      quantity:q||null,
+      unit:f.get('unit')||null,
+      unit_price:unitPrice,
+      quantity_per_1000:q1000||null,
+      cost_per_1000:q1000*unitPrice,
+      total_amount:q*unitPrice,
+      note:f.get('note')||null,
+      created_by:APP.profile.id
+    };
+    const {error}=await sb.from('cost_entries').insert(payload);
+    if(error)return toast(error.message,true);
+    $('#costDialog').close();toast('Custo registrado.');loadCostsDashboard();
+  },true);
+
+  // ============================================================
+  // 4) DASHBOARD DE CUSTOS — MOSTRA CUSTO REAL POR 1.000
+  // ============================================================
 
   window.renderCosts=function(entries,payroll,prod){
-    costDetailData={entries,payroll,prod};
-
     const manual=entries.reduce((s,x)=>s+num(x.total_amount),0);
     const people=payroll.reduce((s,x)=>s+num(x.gross_due),0);
     const total=manual+people;
@@ -331,127 +228,84 @@
     const categories={COLABORADORES:people};
     entries.forEach(e=>categories[e.category]=(categories[e.category]||0)+num(e.total_amount));
     const max=Math.max(1,...Object.values(categories));
-    const costPerBrick=bricks?total/bricks:0;
-    const laborShare=total?people/total*100:0;
+    const per1000ByCategory={};
+    entries.forEach(e=>per1000ByCategory[e.category]=(per1000ByCategory[e.category]||0)+num(e.cost_per_1000));
 
     $('#costKpis').innerHTML=`
       <article class="kpi v86-cost-kpi"><small>Custo total</small><strong>${money(total)}</strong><span>${dateBR(APP.costStart)} — ${dateBR(APP.costEnd)}</span></article>
-      <article class="kpi v86-cost-kpi"><small>Custo por tijolo</small><strong>${money(costPerBrick)}</strong><span>${qty(bricks)} tijolos</span></article>
-      <article class="kpi v86-cost-kpi"><small>Mão de obra</small><strong>${money(people)}</strong><span>${Math.round(laborShare)}% do custo total</span></article>
+      <article class="kpi v86-cost-kpi"><small>Custo médio / 1.000 tijolos</small><strong>${bricks?money(total/bricks*1000):money(0)}</strong><span>todos os custos do período</span></article>
+      <article class="kpi v86-cost-kpi"><small>Materiais / 1.000</small><strong>${money(Object.values(per1000ByCategory).reduce((a,b)=>a+b,0))}</strong><span>segundo consumos informados</span></article>
       <article class="kpi v86-cost-kpi"><small>Média diária de custo</small><strong>${money(total/days)}</strong><span>${days} dia(s) analisados</span></article>`;
 
     $('#costCategoryChart').innerHTML=`
       <div class="v86-chart-title"><div><small>COMPOSIÇÃO</small><strong>Distribuição dos custos</strong></div><span>Clique em uma categoria</span></div>
       <div class="v86-cost-bars">${Object.entries(categories).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`
-        <button type="button" class="v86-cost-row" data-v86-cost-category="${k}">
+        <button type="button" class="v86-cost-row" data-v861-cost-category="${k}">
           <div class="v86-cost-row-top"><span>${costCategoryLabel(k)}</span><strong>${money(v)}</strong></div>
           <div class="v86-cost-track"><i style="width:${v/max*100}%"></i></div>
-          <small>${total?Math.round(v/total*100):0}% do custo total</small>
+          <small>${k!=='COLABORADORES'&&per1000ByCategory[k]!=null?`${money(per1000ByCategory[k])} / 1.000 tijolos · `:''}${total?Math.round(v/total*100):0}% do total</small>
         </button>`).join('')}</div>`;
 
     const sortedProd=[...prod].sort((a,b)=>String(a.manufacture_date).localeCompare(String(b.manufacture_date)));
     const pmax=Math.max(1,...sortedProd.map(x=>num(x.bricks)));
     $('#costProductionSummary').innerHTML=`
       <div class="v86-chart-title"><div><small>PRODUÇÃO</small><strong>Ritmo no período</strong></div><span>${qty(bricks)} tijolos</span></div>
-      <div class="v86-prod-stats">
-        <div><small>Média/dia</small><strong>${qty(bricks/days)}</strong></div>
-        <div><small>Média/semana</small><strong>${qty(bricks/days*7)}</strong></div>
-        <div><small>Projeção 30 dias</small><strong>${qty(bricks/days*30)}</strong></div>
-      </div>
+      <div class="v86-prod-stats"><div><small>Média/dia</small><strong>${qty(bricks/days)}</strong></div><div><small>Média/semana</small><strong>${qty(bricks/days*7)}</strong></div><div><small>Projeção 30 dias</small><strong>${qty(bricks/days*30)}</strong></div></div>
       <div class="v86-production-chart">${sortedProd.slice(-18).map(x=>`<div><i style="height:${Math.max(5,num(x.bricks)/pmax*100)}%"></i><small>${String(x.manufacture_date).slice(8)}</small><span>${qty(x.bricks)}</span></div>`).join('')}</div>`;
 
-    $('#costEntriesList').innerHTML=entries.map(e=>`<div class="cost-entry"><div><strong>${costCategoryLabel(e.category)}${e.cost_catalog_items?.name?` · ${esc(e.cost_catalog_items.name)}`:''}</strong><small>${dateBR(e.cost_date)} · ${esc(e.description||'')}</small></div><strong>${money(e.total_amount)}</strong><button class="icon-danger" data-delete-cost="${e.id}">×</button></div>`).join('')||'<div class="empty-state">Nenhum custo lançado.</div>';
+    $('#costEntriesList').innerHTML=entries.map(e=>`<div class="cost-entry v861-cost-entry"><div><strong>${costCategoryLabel(e.category)}${e.cost_catalog_items?.name?` · ${esc(e.cost_catalog_items.name)}`:''}</strong><small>${dateBR(e.cost_date)} · ${esc(e.description||'')}</small>${e.quantity_per_1000!=null?`<small>${qty(e.quantity_per_1000)} ${esc(e.unit||'un.')} / 1.000 tijolos · custo ${money(e.cost_per_1000||0)}</small>`:''}</div><strong>${money(e.total_amount)}</strong><button class="icon-danger" data-delete-cost="${e.id}">×</button></div>`).join('')||'<div class="empty-state">Nenhum custo lançado.</div>';
     populateCostItems();
   };
 
-  function showCostCategory(category){
-    if(!costDetailData)return;
-    const {entries,payroll}=costDetailData;
-    let title=costCategoryLabel(category),rows='';
-    if(category==='COLABORADORES'){
-      rows=payroll.map(r=>`<div class="v86-cost-detail-row"><div><strong>${esc(r.full_name)}</strong><small>Diárias ${money(r.base_due)} · comissão ${money(r.commission_due)}</small></div><strong>${money(r.gross_due)}</strong></div>`).join('');
-    }else{
-      rows=entries.filter(e=>e.category===category).map(e=>`<div class="v86-cost-detail-row"><div><strong>${dateBR(e.cost_date)} · ${esc(e.cost_catalog_items?.name||e.description||title)}</strong><small>${esc(e.note||e.description||'')}</small></div><strong>${money(e.total_amount)}</strong></div>`).join('');
-    }
-    const d=$('#v85CostDetail');
-    if(!d)return;
-    $('#v85CostDetailContent').innerHTML=`<div class="dialog-head"><div><p class="eyebrow">CUSTOS</p><h2>${title}</h2><small>${dateBR(APP.costStart)} — ${dateBR(APP.costEnd)}</small></div><button class="icon" onclick="document.getElementById('v85CostDetail').close()">×</button></div><div class="v86-cost-detail-list">${rows||'<div class="empty-state">Sem registros.</div>'}</div>`;
-    d.showModal();
-  }
-
+  // Detalhamento de categoria continua disponível.
   document.addEventListener('click',e=>{
-    const b=e.target.closest('[data-v86-cost-category]');
-    if(b){e.preventDefault();showCostCategory(b.dataset.v86CostCategory);}
+    const b=e.target.closest('[data-v861-cost-category]');
+    if(!b)return;
+    const legacy=document.querySelector(`[data-v86-cost-category="${b.dataset.v861CostCategory}"]`);
+    if(legacy)legacy.click();
   });
 
   // ============================================================
-  // 7) BOTÃO DE SENHA ADMIN MAIS DISCRETO
-  // ============================================================
-
-  if($('#adminPasswordBtn')){
-    $('#adminPasswordBtn').classList.add('v86-admin-password');
-    $('#adminPasswordBtn').textContent='Alterar senha';
-  }
-
-  // ============================================================
-  // ESTILO PONTUAL
+  // CSS
   // ============================================================
 
   const style=document.createElement('style');
   style.textContent=`
-    #adminPasswordBtn.v86-admin-password{background:transparent!important;border:0!important;color:rgba(235,245,241,.68)!important;text-align:left!important;font-size:8px!important;padding:5px 8px!important;box-shadow:none!important;text-decoration:underline;text-underline-offset:3px}
-    #adminPasswordBtn.v86-admin-password:hover{color:#fff!important}
+    /* Calendário: aparência anterior */
+    .attendance-day .v861-admin-calendar{border:0!important;box-shadow:none!important;cursor:pointer}
+    .attendance-day .v861-admin-calendar:hover{outline:1px solid rgba(28,85,69,.28);outline-offset:-1px}
+    .attendance-day span b{display:block;font-size:7px;letter-spacing:.04em;margin-bottom:2px}
 
-    .v86-calendar-shift{display:block;width:100%;border:1px solid var(--line);border-radius:7px;padding:5px;background:inherit;color:inherit;text-align:left;cursor:default;font:inherit}
-    .admin-only:not(.hidden) .v86-calendar-shift,.v86-calendar-shift:hover{cursor:pointer}
-    .v86-calendar-shift small{display:block}
-    .v86-calendar-shift.bad{border-color:#d46b61;background:#fff0ee}
-    .v86-calendar-shift.extra{border-color:#3f7b69;background:#edf7f3}
+    /* Funções: duas colunas proporcionais */
+    .v861-function-columns{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-bottom:16px}
+    .v861-function-panel{background:#fff;border:1px solid var(--line);border-radius:15px;padding:14px;min-width:0}
+    .v861-function-panel-accum{border-top:3px solid #54788f}
+    .v861-function-panel>header{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:10px}
+    .v861-function-panel>header p{font-size:7px;letter-spacing:.12em;font-weight:900;color:var(--muted);margin:0}.v861-function-panel>header h3{font-size:14px;margin:3px 0}.v861-function-panel>header small{font-size:8px;color:var(--muted)}
+    .v861-function-panel>header b{width:30px;height:30px;display:grid;place-items:center;border-radius:9px;background:#edf3f0;color:var(--forest)}
+    .v861-function-list{display:grid;gap:7px}.v861-fcard{display:flex;justify-content:space-between;align-items:center;gap:9px;border:1px solid #e1e7e4;border-radius:10px;padding:9px;background:#fbfcfb}
+    .v861-fmeta{display:grid;gap:3px;min-width:0}.v861-fmeta strong{font-size:10px}.v861-fmeta small{font-size:7px;color:var(--muted)}
+    .v861-factions{display:flex;gap:4px;flex-shrink:0}.v861-factions button{font-size:7px;padding:5px 7px}
 
-    .v86-functions-wrap{display:grid;gap:12px;margin-bottom:15px}
-    .v86-functions-section{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px}
-    .v86-functions-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:11px}
-    .v86-functions-head small{font-size:8px;letter-spacing:.12em;color:var(--muted);font-weight:800}
-    .v86-functions-head h3{font-size:14px;margin:3px 0}.v86-functions-head p{font-size:9px;color:var(--muted);margin:0}
-    .v86-functions-head>span{min-width:30px;height:30px;display:grid;place-items:center;border-radius:9px;background:#edf4f1;color:var(--forest);font-weight:800}
-    .v86-functions-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}
-    .v86-functions-grid article{display:flex;justify-content:space-between;align-items:center;gap:8px;border:1px solid #e0e7e4;border-radius:10px;padding:10px;background:#fbfcfb}
-    .v86-functions-grid article>div:first-child{display:grid;gap:3px}.v86-functions-grid small{font-size:8px;color:var(--muted)}
-    .v86-function-actions{display:flex;gap:4px}.v86-function-actions button{font-size:8px;padding:5px 7px}
-    .v86-accum-section{border-left:4px solid #315f84}
-
-    .v86-rotation-block{border:1px solid var(--line);border-radius:12px;padding:12px;margin:9px 0;background:#fbfcfb}
-    .v86-rotation-title{display:flex;gap:9px;align-items:center;margin-bottom:9px}.v86-rotation-title>span{width:25px;height:25px;border-radius:8px;background:var(--forest);color:#fff;display:grid;place-items:center;font-size:9px;font-weight:800}
-    .v86-rotation-title div{display:grid}.v86-rotation-title small{font-size:8px;color:var(--muted)}
-    .v86-production-pills{display:flex;flex-wrap:wrap;gap:6px}.v86-production-pills span{display:flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:999px;padding:6px 9px;background:#fff;font-size:9px}.v86-production-pills b{width:18px;height:18px;display:grid;place-items:center;background:#e8f1ee;border-radius:50%}
-    .v86-accum-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:7px}.v86-accum-list label{display:flex;align-items:flex-start;gap:7px;border:1px solid var(--line);padding:9px;border-radius:9px;background:#fff}.v86-accum-list label div{display:grid}.v86-accum-list small{font-size:8px;color:var(--muted)}
-    .v86-week-note{font-size:8px;color:var(--muted);background:#f1f5f3;border-radius:9px;padding:9px}
-    .v86-day-head{display:flex;justify-content:space-between;align-items:center}.v86-day-head span{font-size:7px;font-weight:900;letter-spacing:.1em;background:#e7f0ec;color:#245a4d;border-radius:99px;padding:4px 7px}
-    .v86-no-assignment{font-size:9px;color:var(--muted);padding:7px 0}.v86-extra-day{border-left:4px solid #3d7866}
-
-    #costKpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
-    .v86-cost-kpi{border-top:3px solid #2e6a5a}
-    .v86-chart-title{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:13px}.v86-chart-title div{display:grid}.v86-chart-title small{font-size:8px;letter-spacing:.1em;color:var(--muted);font-weight:800}.v86-chart-title strong{font-size:13px;margin-top:2px}.v86-chart-title>span{font-size:8px;color:var(--muted)}
-    .v86-cost-bars{display:grid;gap:10px}.v86-cost-row{border:0;background:transparent;padding:5px 0;text-align:left;cursor:pointer}.v86-cost-row:hover{background:#f7faf8;border-radius:8px;padding-left:6px;padding-right:6px}
-    .v86-cost-row-top{display:flex;justify-content:space-between;gap:8px;font-size:10px}.v86-cost-track{height:8px;background:#e9efec;border-radius:999px;overflow:hidden;margin:5px 0}.v86-cost-track i{display:block;height:100%;background:linear-gradient(90deg,#255f50,#75a995);border-radius:999px}.v86-cost-row small{font-size:7px;color:var(--muted)}
-    .v86-prod-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.v86-prod-stats div{border:1px solid var(--line);border-radius:9px;padding:9px}.v86-prod-stats small{display:block;font-size:7px;color:var(--muted)}.v86-prod-stats strong{font-size:13px}
-    .v86-production-chart{height:135px;display:flex;gap:5px;align-items:flex-end;padding-top:18px;margin-top:10px;border-bottom:1px solid var(--line)}.v86-production-chart>div{height:100%;flex:1;min-width:8px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;position:relative}.v86-production-chart i{width:70%;background:linear-gradient(#72a692,#245e50);border-radius:5px 5px 0 0;min-height:5px}.v86-production-chart small{font-size:6px;color:var(--muted);margin-top:3px}.v86-production-chart span{display:none;position:absolute;top:0;font-size:7px;font-weight:800}.v86-production-chart>div:hover span{display:block}
-    .v86-cost-detail-list{padding:14px;display:grid;gap:5px}.v86-cost-detail-row{display:flex;justify-content:space-between;align-items:center;gap:12px;border-bottom:1px solid var(--line);padding:9px}.v86-cost-detail-row>div{display:grid}.v86-cost-detail-row small{font-size:8px;color:var(--muted)}
+    /* Custo por 1000 */
+    .v861-cost-calc{display:grid;grid-template-columns:1fr 1fr;gap:8px;background:#edf4f1;border:1px solid #d5e3dd;border-radius:11px;padding:10px}
+    .v861-cost-calc>div{display:grid;gap:3px}.v861-cost-calc small{font-size:8px;color:var(--muted)}.v861-cost-calc strong{font-size:15px;color:var(--forest)}
+    #costForm input[readonly]{background:#f3f5f4;color:#43504c}
+    .v861-cost-entry small+small{margin-top:3px;color:#315f52;font-weight:700}
 
     @media(max-width:760px){
-      #costKpis{grid-template-columns:1fr 1fr}.v86-functions-grid{grid-template-columns:1fr}.v86-accum-list{grid-template-columns:1fr}
-      .v86-prod-stats{grid-template-columns:1fr 1fr 1fr}.v86-function-actions{flex-direction:column}
+      .v861-function-columns{grid-template-columns:1fr}
+      .v861-cost-calc{grid-template-columns:1fr}
     }
   `;
   document.head.appendChild(style);
 
-  // Reaplica as visualizações depois que o patch V8.5 terminou.
   setTimeout(()=>{
     try{
-      populateLotOptions();
+      enhanceCostForm();
       renderDashboardTeam();
       renderSchedule();
-      if(isAdmin() && typeof loadCostsDashboard==='function') loadCostsDashboard();
-    }catch(err){console.error('TerraLote V8.6:',err);}
-  },550);
+      if(isAdmin()&&typeof loadCostsDashboard==='function')loadCostsDashboard();
+    }catch(err){console.error('TerraLote V8.6.1:',err);}
+  },650);
 })();
