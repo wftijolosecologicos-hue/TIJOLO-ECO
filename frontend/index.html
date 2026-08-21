@@ -8,18 +8,20 @@
   <meta name="apple-mobile-web-app-title" content="TerraLote">
   <title>TerraLote - Produção e Gestão</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="styles.css?v=430">
+  <link rel="stylesheet" href="styles.css?v=440">
 </head>
 <body>
   <section id="loginScreen" class="login-screen">
     <div class="login-card">
       <div class="login-brand"><span class="brand-mark">T</span><div><strong>TerraLote</strong><small>Produção, cura e equipe</small></div></div>
       <h1>Acesso ao sistema</h1>
-      <p>Entre com seu usuário ou e-mail e sua senha.</p>
+      <p>Entre com seu usuário e sua senha.</p>
       <form id="loginForm" class="stack-form">
         <label>Usuário<input name="login" autocomplete="username" required></label>
         <label>Senha<input name="password" type="password" autocomplete="current-password" required></label>
         <button class="primary wide" type="submit">Entrar</button>
+        <button class="login-link" type="button" id="forgotPasswordBtn">Esqueci minha senha</button>
+        <small class="login-recovery-note">Recuperação disponível somente para a conta ADMIN.</small>
         <div id="loginMessage" class="form-message"></div>
       </form>
     </div>
@@ -32,13 +34,16 @@
         <button class="nav active" data-view="dashboard">⌂ <span>Visão geral</span></button>
         <button class="nav" data-view="lots">▤ <span>Lotes</span></button>
         <button class="nav" data-view="tasks">✓ <span>Pendências</span><b id="pendingBadge">0</b></button>
-        <button class="nav" data-view="collaborators">◉ <span>Colaboradores</span></button>
+        <button class="nav admin-only" data-view="collaborators">◉ <span>Colaboradores</span></button>
         <button class="nav" data-view="schedule">↻ <span>Funções e escala</span></button>
+        <button class="nav" data-view="weeklyCalendar">▦ <span>Calendário semanal</span></button>
         <button class="nav admin-only" data-view="catalog">⌘ <span>Catálogos</span></button>
         <button class="nav admin-only" data-view="users">⚙ <span>Usuários</span></button>
+        <button class="nav admin-only" data-view="costs">◫ <span>Custos</span></button>
       </nav>
       <div class="sidebar-foot">
         <div class="user-chip"><span id="userInitial">U</span><div><strong id="userName">Usuário</strong><small id="userRole">OPERADOR</small></div></div>
+        <button class="secondary wide admin-only" id="adminPasswordBtn">Alterar senha ADMIN</button>
         <button class="secondary wide" id="logoutBtn">Sair</button>
       </div>
     </aside>
@@ -59,15 +64,15 @@
           <article class="kpi"><small>Produção da semana</small><strong id="kpiWeek">0</strong><span>tijolos</span></article>
           <article class="kpi"><small>Lotes ativos</small><strong id="kpiLots">0</strong><span>em cura</span></article>
           <article class="kpi"><small>Pendências</small><strong id="kpiTasks">0</strong><span>ações abertas</span></article>
-          <article class="kpi"><small>Comissão da semana</small><strong id="kpiCommission">R$ 0</strong><span>equipe elegível</span></article>
+          <article class="kpi admin-only"><small>Comissão da semana</small><strong id="kpiCommission">R$ 0</strong><span>equipe elegível</span></article>
         </div>
         <div class="analytics-grid">
           <article class="panel"><div class="panel-head"><div><p class="eyebrow">PRODUÇÃO</p><h2>Últimos 14 dias</h2></div></div><div id="productionChart" class="bars-chart"></div></article>
-          <article class="panel"><div class="panel-head"><div><p class="eyebrow">EQUIPE</p><h2>Comissão no ciclo atual</h2></div></div><div id="commissionChart" class="commission-chart"></div></article>
+          <article class="panel admin-only"><div class="panel-head"><div><p class="eyebrow">EQUIPE</p><h2>Comissão no ciclo atual</h2></div></div><div id="commissionChart" class="commission-chart"></div></article>
         </div>
         <div class="team-overview-grid">
-          <article class="panel"><div class="panel-head"><div><p class="eyebrow">ESCALA</p><h2>Próximos dias</h2><p>Funções previstas por colaborador e turno.</p></div><button class="text-btn" data-go="schedule">Abrir escala</button></div><div id="dashboardSchedule" class="dashboard-schedule"></div></article>
-          <article class="panel weekly-calendar-panel"><div class="panel-head"><div><p class="eyebrow">PRESENÇA</p><h2>Calendário semanal</h2><p>Vermelho indica falta/off. Observações aparecem no próprio turno.</p></div></div><div id="weeklyAttendance" class="weekly-attendance"></div></article>
+          <article class="panel overview-open-card" data-open-overview="schedule"><div class="panel-head"><div><p class="eyebrow">ESCALA</p><h2>Próximos dias</h2><p>Funções previstas por colaborador e turno.</p></div><div class="mini-actions"><button class="text-btn" data-open-overview="schedule">Abrir</button><button class="text-btn" data-print-overview="schedule">Imprimir</button></div></div><div id="dashboardSchedule" class="dashboard-schedule"></div></article>
+          <article class="panel weekly-calendar-panel overview-open-card" data-open-overview="calendar"><div class="panel-head"><div><p class="eyebrow">PRESENÇA</p><h2>Calendário semanal</h2><p>Falta/off aparecem em vermelho com observação.</p></div><div class="mini-actions"><button class="text-btn" data-open-overview="calendar">Abrir</button><button class="text-btn" data-print-overview="calendar">Imprimir</button></div></div><div id="weeklyAttendance" class="weekly-attendance"></div></article>
         </div>
       </section>
 
@@ -80,16 +85,45 @@
         <div id="tasksList" class="task-day-groups"></div>
       </section>
 
-      <section id="collaborators" class="view">
-        <div class="section-head"><div><p class="eyebrow">EQUIPE</p><h2>Colaboradores</h2><p>Presença, produção elegível e comissão semanal.</p></div><button class="primary admin-only" id="newCollaboratorBtn">＋ Colaborador</button></div>
+      <section id="collaborators" class="view admin-only">
+        <div class="section-head">
+          <div><p class="eyebrow">EQUIPE · ADMIN</p><h2>Colaboradores</h2><p>Presença, diárias, comissão, adiantamentos e pagamentos.</p></div>
+          <div class="action-row"><button class="secondary" id="newCycleBtn">Novo ciclo</button><button class="primary" id="newCollaboratorBtn">＋ Colaborador</button></div>
+        </div>
         <div id="collaboratorSummary" class="kpi-grid compact"></div>
+        <div class="finance-toolbar">
+          <div class="segmented" id="payrollPeriodBtns"><button class="active" data-payroll-period="week">Semana</button><button data-payroll-period="month">Mês</button><button data-payroll-period="year">Ano</button></div>
+          <div class="date-range"><input id="payrollStart" type="date"><span>até</span><input id="payrollEnd" type="date"><button class="secondary" id="applyPayrollPeriodBtn">Aplicar</button></div>
+        </div>
+        <div id="payrollKpis" class="kpi-grid compact"></div>
+        <article class="panel"><div class="panel-head"><div><h2>Custo por colaborador</h2><p>Valor líquido previsto no período selecionado.</p></div></div><div id="payrollChart" class="cost-bars"></div></article>
+        <article class="panel payroll-panel"><div class="panel-head"><div><h2>Financeiro por colaborador</h2><p>Diária + comissão − adiantamentos.</p></div></div><div id="payrollTable" class="payroll-table"></div></article>
         <div id="collaboratorsList" class="employee-grid"></div>
       </section>
 
       <section id="schedule" class="view">
         <div class="section-head"><div><p class="eyebrow">ORGANIZAÇÃO</p><h2>Funções e escala</h2><p>Todos visualizam; somente ADMIN altera.</p></div><div class="admin-only action-row"><button class="secondary" id="newFunctionBtn">＋ Função</button><button class="secondary danger-action" id="deleteScheduleBtn">Excluir escala</button><button class="primary" id="generateRotationBtn">Gerar rotação</button></div></div>
         <div id="functionsList" class="function-chips"></div>
-        <article class="panel"><div class="panel-head"><div><h2>Escala dos próximos dias</h2></div></div><div id="scheduleList" class="schedule-board"></div></article>
+        <article class="panel"><div class="panel-head"><div><h2>Escala dos próximos dias</h2></div><button class="text-btn" data-print-overview="schedule">Imprimir</button></div><div id="scheduleList" class="schedule-board"></div></article>
+      </section>
+
+      <section id="weeklyCalendar" class="view">
+        <div class="section-head"><div><p class="eyebrow">EQUIPE</p><h2>Calendário semanal</h2><p>Visualização disponível para todos os usuários.</p></div><button class="secondary" data-print-overview="calendar">Imprimir</button></div>
+        <article class="panel"><div id="weeklyCalendarFull" class="weekly-attendance full"></div></article>
+      </section>
+
+      <section id="costs" class="view admin-only">
+        <div class="section-head"><div><p class="eyebrow">FINANCEIRO · ADMIN</p><h2>Custos</h2><p>Custos de equipe, materiais, utilidades e produção.</p></div><div class="action-row"><button class="secondary" id="newCostItemBtn">＋ Insumo</button><button class="primary" id="newCostBtn">＋ Registrar custo</button></div></div>
+        <div class="finance-toolbar">
+          <div class="segmented" id="costPeriodBtns"><button class="active" data-cost-period="week">Semana</button><button data-cost-period="month">Mês</button><button data-cost-period="year">Ano</button></div>
+          <div class="date-range"><input id="costStart" type="date"><span>até</span><input id="costEnd" type="date"><button class="secondary" id="applyCostPeriodBtn">Aplicar</button></div>
+        </div>
+        <div id="costKpis" class="kpi-grid compact"></div>
+        <div class="analytics-grid">
+          <article class="panel"><div class="panel-head"><div><h2>Custos por categoria</h2></div></div><div id="costCategoryChart" class="cost-bars"></div></article>
+          <article class="panel"><div class="panel-head"><div><h2>Produção no período</h2></div></div><div id="costProductionSummary"></div></article>
+        </div>
+        <article class="panel"><div class="panel-head"><div><h2>Lançamentos</h2></div></div><div id="costEntriesList" class="cost-entry-list"></div></article>
       </section>
 
       <section id="catalog" class="view admin-only">
@@ -135,11 +169,76 @@
   </dialog>
 
   <dialog id="detailDialog" class="sheet-dialog"><div id="detailContent"></div></dialog>
-  <dialog id="userDialog" class="small-dialog"><form id="userForm"><div class="dialog-head"><h2>Novo usuário</h2><button type="button" class="icon" data-close="userDialog">×</button></div><div class="stack-form"><label>Nome<input name="fullName" required></label><label>Usuário<input name="username" required></label><label>Senha inicial<input name="password" type="password" minlength="8" required></label><label>Perfil<select name="role"><option>OPERADOR</option><option>SUPERVISOR</option><option>VISUALIZADOR</option><option>ADMIN</option></select></label><label class="permission-check"><input name="canDeleteLots" type="checkbox"> Permitir excluir lotes</label><button class="primary" type="submit">Criar usuário</button></div></form></dialog>
+  <dialog id="userDialog" class="small-dialog"><form id="userForm">
+      <input type="hidden" name="userId">
+      <div class="dialog-head"><h2 id="userDialogTitle">Novo usuário</h2><button type="button" class="icon" data-close="userDialog">×</button></div>
+      <div class="stack-form">
+        <label>Nome<input name="fullName" required></label>
+        <label>Usuário<input name="username" required></label>
+        <label class="user-create-only">Senha inicial<input name="password" type="password" minlength="8"></label>
+        <label>Perfil<select name="role"><option>OPERADOR</option><option>SUPERVISOR</option><option>VISUALIZADOR</option><option>ADMIN</option></select></label>
+        <label class="permission-check"><input name="canDeleteLots" type="checkbox"> Permitir excluir lotes</label>
+        <button class="primary" type="submit" id="userSaveBtn">Salvar usuário</button>
+      </div>
+    </form></dialog>
   <dialog id="collaboratorDialog" class="small-dialog"><form id="collaboratorForm"><div class="dialog-head"><h2>Colaborador</h2><button type="button" class="icon" data-close="collaboratorDialog">×</button></div><div class="stack-form"><label>Nome<input name="fullName" required></label><label>Tipo<input name="employmentType" value="DIARISTA" required></label><label>Horas por dia<input name="dailyHours" type="number" value="8" step="0.5" required></label><label>Comissão a cada 1.000 tijolos (R$)<input name="commission" type="number" value="10" step="0.01" required></label><label>Data de início<input name="startDate" type="date" required></label><button class="primary" type="submit">Salvar</button></div></form></dialog>
   <dialog id="attendanceDialog" class="small-dialog"><form id="attendanceForm"><div class="dialog-head"><h2>Registrar exceção de presença</h2><button type="button" class="icon" data-close="attendanceDialog">×</button></div><input type="hidden" name="collaboratorId"><div class="stack-form"><label>Data<input name="workDate" type="date" required></label><label>Turno<select name="shift"><option value="MANHA">Manhã</option><option value="TARDE">Tarde</option></select></label><label>Situação<select name="status"><option value="ABSENT">Não trabalhou</option><option value="OFF">Off / afastado</option><option value="PRESENT">Presente (correção)</option><option value="EXTRA">Trabalho extraordinário</option></select></label><label>Observação<textarea name="note"></textarea></label><button class="primary" type="submit">Salvar</button></div></form></dialog>
-  <dialog id="functionDialog" class="small-dialog"><form id="functionForm"><div class="dialog-head"><h2>Função</h2><button type="button" class="icon" data-close="functionDialog">×</button></div><div class="stack-form"><label>Nome<input name="name" required></label><label>Tipo<select name="type" required><option value="PRODUCAO">Produção</option><option value="ACUMULAVEL">Acumulável</option></select><small class="field-hint">Produção: apenas uma por colaborador/turno. Acumulável: pode coexistir com outras.</small></label><label>Horário inicial<input name="start" type="time"></label><label>Horário final<input name="end" type="time"></label><label>Observações<textarea name="notes"></textarea></label><button class="primary" type="submit">Salvar</button></div></form></dialog>
+  <dialog id="functionDialog" class="small-dialog"><form id="functionForm">
+      <div class="dialog-head"><h2>Função</h2><button type="button" class="icon" data-close="functionDialog">×</button></div>
+      <div class="stack-form">
+        <label>Nome<input name="name" required></label>
+        <label>Tipo<select name="type" id="functionType" required><option value="PRODUCAO">Produção</option><option value="ACUMULAVEL">Acumulável</option></select></label>
+        <div id="productionFunctionTimes">
+          <label>Horário inicial<input name="start" type="time"></label>
+          <label>Horário final<input name="end" type="time"></label>
+        </div>
+        <div id="accumulativeFunctionFields" class="hidden">
+          <label>Função de referência<select name="anchorFunctionId" id="anchorFunctionSelect"></select><small class="field-hint">A função acumulável ficará com quem estiver nessa função na manhã.</small></label>
+          <div class="time-pair"><label>Manhã - início<input name="morningStart" type="time" value="07:00"></label><label>Manhã - fim<input name="morningEnd" type="time" value="07:20"></label></div>
+          <div class="time-pair"><label>Tarde - início<input name="afternoonStart" type="time" value="17:00"></label><label>Tarde - fim<input name="afternoonEnd" type="time" value="17:20"></label></div>
+        </div>
+        <label>Observações<textarea name="notes"></textarea></label>
+        <button class="primary" type="submit">Salvar</button>
+      </div>
+    </form></dialog>
   <dialog id="rotationDialog" class="small-dialog"><form id="rotationForm"><div class="dialog-head"><div><h2>Gerar rotação</h2><small>As funções de Produção serão distribuídas alternadamente.</small></div><button type="button" class="icon" data-close="rotationDialog">×</button></div><div class="stack-form"><label>Data inicial<input name="startDate" type="date" required></label><label>Quantidade de dias<input name="days" type="number" min="1" max="31" value="5" required></label><div><strong class="form-label">Acumular funções adicionais</strong><p class="field-hint">Opcional. As funções marcadas serão adicionadas junto à função de produção em cada turno gerado.</p><div id="rotationAccumFunctions" class="check-list"></div></div><button class="primary" type="submit">Gerar escala</button></div></form></dialog>
+  <dialog id="offDialog" class="small-dialog"><form id="offForm">
+    <div class="dialog-head"><h2>Off por período</h2><button type="button" class="icon" data-close="offDialog">×</button></div>
+    <div class="stack-form"><input type="hidden" name="collaboratorId"><label>Data inicial<input name="startDate" type="date" required></label><label>Data final<input name="endDate" type="date" required></label><label>Observação<textarea name="note" placeholder="Motivo do período off"></textarea></label><button class="primary">Registrar período</button></div>
+  </form></dialog>
+
+  <dialog id="cycleDialog" class="small-dialog"><form id="cycleForm">
+    <div class="dialog-head"><h2>Iniciar novo ciclo</h2><button type="button" class="icon" data-close="cycleDialog">×</button></div>
+    <div class="stack-form"><label>Data de início<input name="startDate" type="date" required></label><label>Observação<textarea name="note" placeholder="Ex.: entrada/saída de colaborador"></textarea></label><button class="primary">Iniciar ciclo</button></div>
+  </form></dialog>
+
+  <dialog id="advanceDialog" class="small-dialog"><form id="advanceForm">
+    <div class="dialog-head"><h2>Registrar adiantamento</h2><button type="button" class="icon" data-close="advanceDialog">×</button></div>
+    <div class="stack-form"><input type="hidden" name="collaboratorId"><label>Data<input name="date" type="date" required></label><label>Valor (R$)<input name="amount" type="number" min="0.01" step="0.01" required></label><label>Observação<textarea name="note"></textarea></label><button class="primary">Registrar</button></div>
+  </form></dialog>
+
+  <dialog id="rateDialog" class="small-dialog"><form id="rateForm">
+    <div class="dialog-head"><h2>Valor da diária</h2><button type="button" class="icon" data-close="rateDialog">×</button></div>
+    <div class="stack-form"><input type="hidden" name="collaboratorId"><label>Diária (R$)<input name="dailyRate" type="number" min="0" step="0.01" required></label><button class="primary">Salvar diária</button></div>
+  </form></dialog>
+
+  <dialog id="costDialog" class="small-dialog"><form id="costForm">
+    <div class="dialog-head"><h2>Registrar custo</h2><button type="button" class="icon" data-close="costDialog">×</button></div>
+    <div class="stack-form"><label>Data<input name="costDate" type="date" required></label><label>Categoria<select name="category" id="costCategory" required><option value="CEMENT">Cimento</option><option value="SOIL">Terra</option><option value="SAND">Areia</option><option value="MATERIAL">Outro material</option><option value="ELECTRICITY">Eletricidade</option><option value="WATER">Água</option><option value="RENT">Aluguel</option><option value="OTHER">Outro custo</option></select></label><label id="costItemField">Insumo<select name="catalogItemId" id="costItemSelect"></select></label><label>Descrição<input name="description"></label><label>Quantidade<input name="quantity" type="number" min="0" step="0.001"></label><label>Unidade<input name="unit"></label><label>Valor total (R$)<input name="totalAmount" type="number" min="0" step="0.01" value="0" required></label><label>Observação<textarea name="note"></textarea></label><button class="primary">Salvar custo</button></div>
+  </form></dialog>
+
+  <dialog id="costItemDialog" class="small-dialog"><form id="costItemForm">
+    <div class="dialog-head"><h2>Novo insumo</h2><button type="button" class="icon" data-close="costItemDialog">×</button></div>
+    <div class="stack-form"><label>Categoria<select name="category"><option value="CEMENT">Cimento</option><option value="SOIL">Terra</option><option value="SAND">Areia</option><option value="MATERIAL">Outro material</option><option value="OTHER">Outro</option></select></label><label>Nome<input name="name" required></label><label>Unidade<input name="unit" placeholder="saco, kg, m³, carga..."></label><button class="primary">Cadastrar insumo</button></div>
+  </form></dialog>
+
+  <dialog id="overviewDialog" class="analytics-dialog"><div id="overviewDialogContent"></div></dialog>
+
+  <dialog id="recoveryDialog" class="small-dialog"><form id="recoveryForm">
+    <div class="dialog-head"><h2>Nova senha ADMIN</h2></div>
+    <div class="stack-form"><p class="field-hint">Este formulário é aberto somente pelo link recebido no e-mail administrativo.</p><label>Nova senha<input name="password" type="password" minlength="8" required></label><label>Repetir senha<input name="confirmPassword" type="password" minlength="8" required></label><button class="primary">Salvar nova senha</button></div>
+  </form></dialog>
+
   <dialog id="soilDialog" class="small-dialog"><form id="soilForm"><div class="dialog-head"><h2>Nova terra</h2><button type="button" class="icon" data-close="soilDialog">×</button></div><div class="stack-form"><label>Código<input name="code" placeholder="T-02" required></label><label>Nome<input name="name" required></label><label>Origem<input name="origin" required></label><label>Areia (%)<input name="sand" type="number" min="0" max="100" step="0.1" required></label><label>Argila (%)<input name="clay" type="number" min="0" max="100" step="0.1" required></label><button class="primary" type="submit">Salvar</button></div></form></dialog>
   <dialog id="planDialog" class="small-dialog"><form id="planForm"><div class="dialog-head"><h2>Novo plano</h2><button type="button" class="icon" data-close="planDialog">×</button></div><div class="stack-form"><label>Código<input name="code" required></label><label>Nome<input name="name" required></label><label>Dias<input name="days" type="number" min="0" required></label><label>Horários separados por vírgula<input name="times" placeholder="08:00,16:00"></label><label>Descrição<textarea name="description"></textarea></label><button class="primary" type="submit">Salvar</button></div></form></dialog>
 
@@ -147,7 +246,7 @@
   <div id="loading" class="loading hidden"><div><span></span><strong>Aguarde...</strong><small id="loadingText">Atualizando dados</small></div></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="config.js?v=430"></script>
-  <script src="app.js?v=430"></script>
+  <script src="config.js?v=440"></script>
+  <script src="app.js?v=440"></script>
 </body>
 </html>

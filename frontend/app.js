@@ -2,15 +2,15 @@ const CFG=window.TERRALOTE_CONFIG||{};
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 if(!window.supabase) throw new Error('Biblioteca Supabase não carregada.');
 const sb=window.supabase.createClient(CFG.SUPABASE_URL,CFG.SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true}});
-const CACHE_KEY='terralote_v8_cache';
+const CACHE_KEY='terralote_v84_cache';
 const QUEUE_KEY='terralote_v8_queue';
-const APP={profile:null,lots:[],tasks:[],soils:[],plans:[],recipes:[],collaborators:[],attendance:[],functions:[],assignments:[],weeklyCommission:[],dailyProduction:[],taskFilter:'pending'};
+const APP={profile:null,lots:[],tasks:[],soils:[],plans:[],recipes:[],collaborators:[],attendance:[],functions:[],assignments:[],weeklyCommission:[],dailyProduction:[],users:[],payrollRows:[],costEntries:[],costItems:[],taskFilter:'pending',payrollStart:null,payrollEnd:null,costStart:null,costEnd:null};
 
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
 function num(v){return Number(v||0)}
 function money(v){return new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(num(v))}
 function qty(v){return new Intl.NumberFormat('pt-BR',{maximumFractionDigits:1}).format(num(v))}
-function dateBR(v,withTime=false){if(!v)return '—';const d=new Date(v);return new Intl.DateTimeFormat('pt-BR',withTime?{dateStyle:'short',timeStyle:'short'}:{dateStyle:'short'}).format(d)}
+function dateBR(v,withTime=false){if(!v)return '—';const raw=String(v),d=new Date(/^\d{4}-\d{2}-\d{2}$/.test(raw)?raw+'T12:00:00':v);return new Intl.DateTimeFormat('pt-BR',withTime?{dateStyle:'short',timeStyle:'short'}:{dateStyle:'short'}).format(d)}
 function toast(msg,error=false){const t=$('#toast');t.textContent=msg;t.className='toast show'+(error?' error':'');setTimeout(()=>t.className='toast',3200)}
 function loading(show,text='Atualizando dados'){const el=$('#loading');$('#loadingText').textContent=text;el.classList.toggle('hidden',!show)}
 function isAdmin(){return APP.profile?.role==='ADMIN'}
@@ -21,6 +21,22 @@ function lotProgress(l){const start=new Date(l.manufactured_at).getTime(),end=ne
 function operationalStatus(l){if(l.operational_status)return l.operational_status;if(l.status==='COMPLETED')return 'COMPLETED';const overdue=APP.tasks.some(t=>t.lot_id===l.id&&t.status==='PENDING'&&new Date(t.scheduled_at)<new Date());return overdue?'OVERDUE':'CURING'}
 function statusLabel(s){return ({COMPLETED:'Concluído',OVERDUE:'Com pendência',CURING:'Em cura',DELETED:'Excluído'})[s]||s}
 function shiftLabel(s){return s==='MANHA'?'Manhã':'Tarde'}
+
+const ADMIN_RECOVERY_EMAIL='wftijolosecologicos@gmail.com';
+function isoDate(d){const x=new Date(d);x.setMinutes(x.getMinutes()-x.getTimezoneOffset());return x.toISOString().slice(0,10)}
+function endOfWeekSundayCycle(d=new Date()){const s=weekStartSunday(d),e=new Date(s);e.setDate(e.getDate()+6);return e}
+function rangeFor(kind,d=new Date()){
+  const x=new Date(d);x.setHours(12,0,0,0);
+  if(kind==='week'){const s=weekStartSunday(x),e=new Date(s);e.setDate(s.getDate()+6);return [isoDate(s),isoDate(e)]}
+  if(kind==='month'){return [isoDate(new Date(x.getFullYear(),x.getMonth(),1,12)),isoDate(new Date(x.getFullYear(),x.getMonth()+1,0,12))]}
+  return [isoDate(new Date(x.getFullYear(),0,1,12)),isoDate(new Date(x.getFullYear(),11,31,12))]
+}
+function timeHM(v){return v?String(v).slice(0,5):''}
+function functionAssignmentLabel(a){
+  const n=a.work_functions?.name||'Função';
+  const start=timeHM(a.start_time),end=timeHM(a.end_time);
+  return `${n}${start&&end?` · ${start}–${end}`:''}`;
+}
 
 async function getProfile(){const {data:{user}}=await sb.auth.getUser();if(!user)return null;const {data,error}=await sb.from('profiles').select('*').eq('id',user.id).single();if(error)throw error;if(data.status!=='ACTIVE'){await sb.auth.signOut();throw new Error('Seu acesso está suspenso. Fale com o administrador.')}APP.profile=data;return data}
 async function login(e){
@@ -48,14 +64,17 @@ async function bootstrap(){if(loadCache())renderAll();loading(true,'Sincronizand
  sb.from('collaborators').select('*').order('full_name'),
  sb.from('attendance_exceptions').select('*').gte('work_date',new Date(Date.now()-21*864e5).toISOString().slice(0,10)).order('work_date'),
  sb.from('work_functions').select('*').eq('active',true).order('name'),
- sb.from('function_assignments').select('*,collaborators(full_name),work_functions(name,function_type)').gte('work_date',new Date(Date.now()-7*864e5).toISOString().slice(0,10)).lte('work_date',new Date(Date.now()+14*864e5).toISOString().slice(0,10)).order('work_date'),
+ sb.from('function_assignments').select('*,collaborators(full_name),work_functions(name,function_type,morning_start,morning_end,afternoon_start,afternoon_end)').gte('work_date',new Date(Date.now()-7*864e5).toISOString().slice(0,10)).lte('work_date',new Date(Date.now()+14*864e5).toISOString().slice(0,10)).order('work_date'),
  sb.from('v_weekly_commission').select('*').gte('cycle_start_sunday',weekStartSunday().toISOString().slice(0,10)),
  sb.from('v_daily_production').select('*').gte('manufacture_date',new Date(Date.now()-30*864e5).toISOString().slice(0,10)).order('manufacture_date')
 ]);
  for(const r of [lots,tasks,soils,plans,recipes,collabs,attendance,funcs,assignments,comm,daily])if(r.error)throw r.error;
  APP.lots=lots.data||[];APP.tasks=(tasks.data||[]).map(t=>({...t,lot_code:t.lots?.lot_code,responsible:t.lots?.responsible_snapshot}));APP.soils=soils.data||[];APP.plans=plans.data||[];APP.recipes=recipes.data||[];APP.collaborators=collabs.data||[];APP.attendance=attendance.data||[];APP.functions=funcs.data||[];APP.assignments=assignments.data||[];APP.weeklyCommission=comm.data||[];APP.dailyProduction=daily.data||[];saveCache();renderAll();await flushQueue()}catch(err){toast('Não foi possível atualizar tudo. Exibindo dados salvos quando disponíveis.',true);console.error(err)}finally{loading(false)}}
 
-function renderAll(){renderDashboard();renderLots();renderTasks();renderCollaborators();renderSchedule();renderCatalog();populateLotOptions();if(isAdmin())loadUsers()}
+function renderAll(){
+  renderDashboard();renderLots();renderTasks();renderSchedule();renderWeeklyCalendarPage();renderCatalog();populateLotOptions();
+  if(isAdmin()){renderCollaborators();loadUsers();initAdminPeriods();loadPayrollDashboard();loadCostsDashboard()}
+}
 function attendanceState(collabId,date,shift){
   const ex=APP.attendance.find(x=>x.collaborator_id===collabId&&x.work_date===date&&x.shift===shift);
   if(ex)return {status:ex.status,note:ex.note||''};
@@ -64,44 +83,37 @@ function attendanceState(collabId,date,shift){
 }
 function renderDashboardTeam(){
   const today=new Date();today.setHours(0,0,0,0);
-  const upcoming=APP.assignments
-    .filter(a=>new Date(a.work_date+'T12:00:00')>=today)
-    .slice()
-    .sort((a,b)=>a.work_date.localeCompare(b.work_date)||a.shift.localeCompare(b.shift));
+  const upcoming=APP.assignments.filter(a=>new Date(a.work_date+'T12:00:00')>=today).slice().sort((a,b)=>a.work_date.localeCompare(b.work_date)||a.shift.localeCompare(b.shift));
   const dates=[...new Set(upcoming.map(a=>a.work_date))].slice(0,4);
 
   $('#dashboardSchedule').innerHTML=dates.map(d=>{
     const rows=upcoming.filter(a=>a.work_date===d);
-    const groups={
-      MANHA:groupAssignments(rows.filter(a=>a.shift==='MANHA')),
-      TARDE:groupAssignments(rows.filter(a=>a.shift==='TARDE'))
-    };
-    const shifts=['MANHA','TARDE'].map(sh=>{
-      const people=groups[sh].map(g=>{
-        const names=g.items.map(a=>esc(a.work_functions?.name||'')).join(' + ');
-        return `<span><b>${esc(g.name)}</b> ${names}</span>`;
-      }).join('')||'<em>Sem escala</em>';
-      return `<div><small>${sh==='MANHA'?'MANHÃ':'TARDE'}</small><div>${people}</div></div>`;
-    }).join('');
-    return `<section class="dash-schedule-day"><header><strong>${new Date(d+'T12:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'})}</strong></header>${shifts}</section>`;
+    return `<section class="dash-schedule-day">
+      <header><strong>${new Date(d+'T12:00').toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'2-digit'})}</strong></header>
+      ${['MANHA','TARDE'].map(sh=>{
+        const groups=groupAssignments(rows.filter(a=>a.shift===sh));
+        return `<div><small>${sh==='MANHA'?'MANHÃ':'TARDE'}</small><div>${groups.map(g=>`<span><b>${esc(g.name)}</b> ${g.items.map(a=>esc(functionAssignmentLabel(a))).join(' + ')}</span>`).join('')||'<em>Sem escala</em>'}</div></div>`;
+      }).join('')}
+    </section>`;
   }).join('')||'<div class="empty-state">Nenhuma escala para os próximos dias.</div>';
 
   const start=weekStartSunday(),days=[];
-  for(let i=0;i<7;i++){const d=new Date(start);d.setDate(start.getDate()+i);days.push(d.toISOString().slice(0,10))}
+  for(let i=0;i<7;i++){const d=new Date(start);d.setDate(start.getDate()+i);days.push(isoDate(d))}
   const collabs=APP.collaborators.filter(c=>c.status!=='INACTIVE');
-
   const head=days.map(d=>`<span>${new Date(d+'T12:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit'})}</span>`).join('');
   const rows=collabs.map(c=>{
     const cells=days.map(d=>{
       const m=attendanceState(c.id,d,'MANHA'),t=attendanceState(c.id,d,'TARDE');
-      const ms=`<span class="${attendanceClass(m.status)}" title="${esc(m.note)}">M ${attendanceShort(m.status)}${m.note?`<small>${esc(m.note)}</small>`:''}</span>`;
-      const ts=`<span class="${attendanceClass(t.status)}" title="${esc(t.note)}">T ${attendanceShort(t.status)}${t.note?`<small>${esc(t.note)}</small>`:''}</span>`;
-      return `<div class="attendance-day">${ms}${ts}</div>`;
+      return `<div class="attendance-day">
+        <span class="${attendanceClass(m.status)}"><b>MANHÃ</b> ${attendanceShort(m.status)}${m.note?`<small>${esc(m.note)}</small>`:''}</span>
+        <span class="${attendanceClass(t.status)}"><b>TARDE</b> ${attendanceShort(t.status)}${t.note?`<small>${esc(t.note)}</small>`:''}</span>
+      </div>`;
     }).join('');
     return `<div class="attendance-row"><strong>${esc(c.full_name)}</strong>${cells}</div>`;
   }).join('');
-
-  $('#weeklyAttendance').innerHTML=`<div class="attendance-table"><div class="attendance-head"><span>Colaborador</span>${head}</div>${rows}</div>`;
+  const calendar=`<div class="attendance-table"><div class="attendance-head"><span>Colaborador</span>${head}</div>${rows}</div>`;
+  $('#weeklyAttendance').innerHTML=calendar;
+  if($('#weeklyCalendarFull'))$('#weeklyCalendarFull').innerHTML=calendar;
 }
 function attendanceClass(status){return ['ABSENT','OFF'].includes(status)?'bad':status==='EXTRA'?'extra':status==='PRESENT'?'ok':'off'}
 function attendanceShort(status){return status==='ABSENT'?'Falta':status==='OFF'?'Off':status==='EXTRA'?'Extra':status==='PRESENT'?'✓':'—'}
@@ -114,16 +126,21 @@ function renderDashboard(){const week=weekStartSunday(),weekStr=week.toISOString
 function renderLots(filter=$('#lotSearch')?.value||''){const q=filter.toLowerCase();$('#lotsList').innerHTML=APP.lots.filter(l=>JSON.stringify(l).toLowerCase().includes(q)).map(l=>`<article class="lot-card" data-lot="${l.id}"><header><div><strong>${esc(l.lot_code)}</strong><small>${dateBR(l.manufactured_at,true)} · ${shiftLabel(l.shift)}</small></div><span class="badge ${operationalStatus(l).toLowerCase()}">${statusLabel(operationalStatus(l))}</span></header><p>${qty(l.quantity)} tijolos · ${esc(l.soil_name)} · ${esc(l.cement_type)}</p><div class="progress"><i style="width:${lotProgress(l)}%"></i></div><small>${lotProgress(l)}% da cura · Responsável: ${esc(l.responsible_snapshot)}</small></article>`).join('')||'<div>Nenhum lote encontrado.</div>'}
 function renderTasks(){const now=new Date();let rows=APP.tasks;if(APP.taskFilter==='pending')rows=rows.filter(x=>x.status==='PENDING');if(APP.taskFilter==='done')rows=rows.filter(x=>x.status==='DONE');const groups={};rows.forEach(t=>{const k=new Date(t.scheduled_at).toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long'});(groups[k]??=[]).push(t)});$('#tasksList').innerHTML=Object.entries(groups).map(([day,items])=>`<section class="task-day"><h3>${day}</h3>${items.map(t=>{const overdue=t.status==='PENDING'&&new Date(t.scheduled_at)<now;return`<article class="task-item ${overdue?'overdue':''} ${t.status==='DONE'?'done':''}"><time>${new Date(t.scheduled_at).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</time><div><strong>${esc(t.lot_code)}</strong><small>${esc(t.responsible)}</small></div>${t.status==='DONE'?'<span>✓ Confirmada</span>':`<button data-confirm-task="${t.id}">Confirmar</button>`}</article>`}).join('')}</section>`).join('')||'<div>Nenhuma tarefa nesta categoria.</div>'}
 function renderCollaborators(){
-  const cycle=weekStartSunday().toISOString().slice(0,10),visible=APP.collaborators.filter(x=>x.status!=='INACTIVE');
-  const total=APP.weeklyCommission.reduce((s,x)=>s+num(x.commission_value),0);
-  $('#collaboratorSummary').innerHTML=`<article class="kpi"><small>Ciclo iniciado</small><strong>${dateBR(cycle)}</strong><span>domingo</span></article><article class="kpi"><small>Colaboradores ativos</small><strong>${visible.filter(x=>x.status==='ACTIVE').length}</strong><span>equipe</span></article><article class="kpi"><small>Comissão acumulada</small><strong>${money(total)}</strong><span>ciclo atual</span></article><article class="kpi"><small>Regra</small><strong>R$ 10</strong><span>por 1.000 tijolos / pessoa</span></article>`;
-  $('#collaboratorsList').innerHTML=visible.map(c=>{const wc=APP.weeklyCommission.find(x=>x.collaborator_id===c.id),ex=APP.attendance.filter(x=>x.collaborator_id===c.id).slice(-4);return`<article class="employee-card"><header><div><strong>${esc(c.full_name)}</strong><small>${esc(c.employment_type)} · ${c.daily_hours}h/dia</small></div><span class="badge ${c.status==='ACTIVE'?'active':'suspended'}">${c.status}</span></header><div class="metric-row"><div class="metric"><small>Tijolos elegíveis</small><strong>${qty(wc?.eligible_bricks||0)}</strong></div><div class="metric"><small>Comissão</small><strong>${money(wc?.commission_value||0)}</strong></div></div><small>Exceções recentes: ${ex.length}</small>${isAdmin()?`<div class="employee-actions"><button data-attendance="${c.id}">Presença/ausência</button><button data-off="${c.id}">Off por período</button><button data-toggle-collab="${c.id}">${c.status==='ACTIVE'?'Suspender':'Reativar'}</button><button class="danger-action" data-delete-collab="${c.id}">Excluir</button></div>`:''}</article>`}).join('')
+  if(!isAdmin())return;
+  const visible=APP.collaborators.filter(x=>x.status!=='INACTIVE');
+  $('#collaboratorSummary').innerHTML=`<article class="kpi"><small>Colaboradores atuais</small><strong>${visible.length}</strong><span>ativos/suspensos</span></article><article class="kpi"><small>Regra de comissão</small><strong>R$ 10</strong><span>por 1.000 tijolos / pessoa elegível</span></article><article class="kpi"><small>Ciclo ativo</small><strong>${APP.activeCycle?dateBR(APP.activeCycle.start_date):'Domingo'}</strong><span>${APP.activeCycle?'ciclo manual':'início semanal padrão'}</span></article>`;
+  $('#collaboratorsList').innerHTML=visible.map(c=>`<article class="employee-card">
+    <header><div><strong>${esc(c.full_name)}</strong><small>${esc(c.employment_type)} · ${c.daily_hours}h/dia</small></div><span class="badge ${c.status==='ACTIVE'?'active':'suspended'}">${c.status}</span></header>
+    <div class="metric-row"><div class="metric"><small>Diária atual</small><strong>${money(c.daily_rate||0)}</strong></div><div class="metric"><small>Comissão/1.000</small><strong>${money(c.commission_per_1000||0)}</strong></div></div>
+    <div class="employee-actions"><button data-rate="${c.id}">Definir diária</button><button data-advance="${c.id}">Adiantamento</button><button data-attendance="${c.id}">Presença/falta</button><button data-off="${c.id}">Off por período</button><button data-toggle-collab="${c.id}">${c.status==='ACTIVE'?'Suspender':'Reativar'}</button><button class="danger-action" data-delete-collab="${c.id}">Excluir</button></div>
+  </article>`).join('')
 }
 function renderSchedule(){
   const days={};APP.assignments.forEach(a=>{(days[a.work_date]??={MANHA:[],TARDE:[]})[a.shift].push(a)});
-  $('#functionsList').innerHTML=APP.functions.map(f=>`<span class="function-chip ${f.function_type==='ACUMULAVEL'?'accum':''}">${esc(f.name)} <small>${f.function_type==='PRODUCAO'?'Produção':'Acumulável'}</small>${isAdmin()?`<button data-delete-function="${f.id}" title="Excluir função">×</button>`:''}</span>`).join('');
-  $('#scheduleList').innerHTML=Object.entries(days).map(([d,sh])=>`<section class="schedule-day"><h3>${new Date(d+'T12:00').toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long'})}</h3><div class="schedule-shifts">${['MANHA','TARDE'].map(shift=>`<div class="schedule-shift"><h4>${shift==='MANHA'?'Manhã':'Tarde'}</h4>${groupAssignments(sh[shift]).map(g=>`<div class="assignment multi"><strong>${esc(g.name)}</strong><div class="assignment-functions">${g.items.map(a=>`<span class="${a.work_functions?.function_type==='ACUMULAVEL'?'accum':''}">${esc(a.work_functions?.name)}${isAdmin()?`<button data-delete-assignment="${a.id}" title="Remover da escala">×</button>`:''}</span>`).join('')}</div></div>`).join('')||'—'}</div>`).join('')}</div></section>`).join('')||'<div>Nenhuma escala gerada.</div>'
+  $('#functionsList').innerHTML=APP.functions.map(f=>`<span class="function-chip ${f.function_type==='ACUMULAVEL'?'accum':''}">${esc(f.name)} <small>${f.function_type==='PRODUCAO'?'Produção':'Acumulável'}</small>${f.function_type==='ACUMULAVEL'&&f.morning_start?`<small>${timeHM(f.morning_start)}–${timeHM(f.morning_end)} / ${timeHM(f.afternoon_start)}–${timeHM(f.afternoon_end)}</small>`:''}${isAdmin()?`<button data-delete-function="${f.id}" title="Excluir função">×</button>`:''}</span>`).join('');
+  $('#scheduleList').innerHTML=Object.entries(days).sort(([a],[b])=>a.localeCompare(b)).map(([d,sh])=>`<section class="schedule-day"><h3>${new Date(d+'T12:00').toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long'})}</h3><div class="schedule-shifts">${['MANHA','TARDE'].map(shift=>`<div class="schedule-shift"><h4>${shift==='MANHA'?'Manhã':'Tarde'}</h4>${groupAssignments(sh[shift]).map(g=>`<div class="assignment multi"><strong>${esc(g.name)}</strong><div class="assignment-functions">${g.items.map(a=>`<span class="${a.work_functions?.function_type==='ACUMULAVEL'?'accum':''}">${esc(functionAssignmentLabel(a))}${isAdmin()?`<button data-delete-assignment="${a.id}" title="Remover">×</button>`:''}</span>`).join('')}</div></div>`).join('')||'—'}</div>`).join('')}</div></section>`).join('')||'<div>Nenhuma escala gerada.</div>'
 }
+function renderWeeklyCalendarPage(){renderDashboardTeam()}
 function groupAssignments(items){
   const m={};(items||[]).forEach(a=>{const id=a.collaborator_id;(m[id]??={name:a.collaborators?.full_name||'',items:[]}).items.push(a)});return Object.values(m)
 }
@@ -207,23 +224,56 @@ function renderUsers(){
     <header><div><strong>${esc(u.full_name)}</strong><small>@${esc(u.username)}</small></div><span class="badge ${u.status==='ACTIVE'?'active':'suspended'}">${u.status==='ACTIVE'?'ATIVO':'SUSPENSO'}</span></header>
     <p>${esc(u.role)}</p>
     <div class="user-permission"><span>Excluir lotes</span><button class="permission-toggle ${u.can_delete_lots?'on':''}" data-user-action="lotDeletePermission" data-user="${u.id}" data-allowed="${u.can_delete_lots?'false':'true'}">${u.can_delete_lots?'Permitido':'Não permitido'}</button></div>
-    <div class="user-actions">${u.id!==APP.profile.id?`<button data-user-action="${u.status==='ACTIVE'?'suspend':'reactivate'}" data-user="${u.id}">${u.status==='ACTIVE'?'Suspender':'Reativar'}</button><button data-user-action="resetPassword" data-user="${u.id}">Nova senha</button><button class="danger-action" data-user-action="delete" data-user="${u.id}">Excluir</button>`:'<small>Conta atual</small>'}</div>
+    <div class="user-actions"><button data-user-action="edit" data-user="${u.id}">Editar</button>${u.id!==APP.profile.id?`<button data-user-action="${u.status==='ACTIVE'?'suspend':'reactivate'}" data-user="${u.id}">${u.status==='ACTIVE'?'Suspender':'Reativar'}</button><button class="danger-action" data-user-action="delete" data-user="${u.id}">Excluir</button>`:'<small>Conta atual</small>'}</div>
   </article>`).join('')
 }
 async function adminUserAction(action,userId,data={}){const {data:{session}}=await sb.auth.getSession();const r=await fetch(`${CFG.SUPABASE_URL}/functions/v1/admin-users`,{method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${session.access_token}`,'apikey':CFG.SUPABASE_PUBLISHABLE_KEY},body:JSON.stringify({action,userId,...data})});const j=await r.json();if(!j.ok)throw new Error(j.error);return j}
 async function submitUser(e){
   e.preventDefault();
-  const fd=new FormData(e.currentTarget);
-  const payload={fullName:String(fd.get('fullName')).trim(),username:String(fd.get('username')).trim(),password:String(fd.get('password')),role:String(fd.get('role')),canDeleteLots:fd.get('canDeleteLots')==='on'};
-  loading(true,'Criando usuário');
-  try{await adminUserAction('create',null,payload);$('#userDialog').close();e.currentTarget.reset();toast('Usuário criado.');await loadUsers()}
-  catch(err){toast(err.message,true)}finally{loading(false)}
+  const fd=new FormData(e.currentTarget),userId=String(fd.get('userId')||'');
+  const payload={fullName:String(fd.get('fullName')).trim(),username:String(fd.get('username')).trim(),role:String(fd.get('role')),canDeleteLots:fd.get('canDeleteLots')==='on'};
+  if(!userId)payload.password=String(fd.get('password')||'');
+  loading(true,userId?'Atualizando usuário':'Criando usuário');
+  try{
+    await adminUserAction(userId?'edit':'create',userId||null,payload);
+    $('#userDialog').close();e.currentTarget.reset();toast(userId?'Usuário atualizado.':'Usuário criado.');await loadUsers()
+  }catch(err){toast(err.message,true)}finally{loading(false)}
+}
+function openNewUser(){
+  const f=$('#userForm');f.reset();f.userId.value='';$('#userDialogTitle').textContent='Novo usuário';$('.user-create-only').classList.remove('hidden');f.password.required=true;$('#userDialog').showModal()
+}
+function openEditUser(id){
+  const u=APP.users.find(x=>x.id===id);if(!u)return;
+  const f=$('#userForm');f.reset();f.userId.value=u.id;f.fullName.value=u.full_name;f.username.value=u.username;f.role.value=u.role;f.canDeleteLots.checked=Boolean(u.can_delete_lots);f.password.required=false;$('.user-create-only').classList.add('hidden');$('#userDialogTitle').textContent='Editar usuário';$('#userDialog').showModal()
 }
 async function submitCollaborator(e){e.preventDefault();const f=new FormData(e.currentTarget),payload={full_name:f.get('fullName'),employment_type:f.get('employmentType'),daily_hours:num(f.get('dailyHours')),commission_per_1000:num(f.get('commission')),start_date:f.get('startDate')};const {error}=await sb.from('collaborators').insert(payload);if(error)return toast(error.message,true);$('#collaboratorDialog').close();toast('Colaborador cadastrado.');bootstrap()}
 async function submitAttendance(e){e.preventDefault();const f=new FormData(e.currentTarget),payload={collaborator_id:f.get('collaboratorId'),work_date:f.get('workDate'),shift:f.get('shift'),status:f.get('status'),note:f.get('note')||null,created_by:APP.profile.id};const {error}=await sb.from('attendance_exceptions').upsert(payload,{onConflict:'collaborator_id,work_date,shift'});if(error)return toast(error.message,true);$('#attendanceDialog').close();toast('Presença atualizada.');bootstrap()}
-async function setOffPeriod(id){const days=Number(prompt('Quantos dias ficará off?',4));if(!days||days<1)return;const start=prompt('Data inicial (AAAA-MM-DD)',new Date().toISOString().slice(0,10));if(!start)return;const rows=[];for(let i=0;i<days;i++){const d=new Date(start+'T12:00');d.setDate(d.getDate()+i);const date=d.toISOString().slice(0,10);rows.push({collaborator_id:id,work_date:date,shift:'MANHA',status:'OFF',note:`Off por ${days} dia(s)`,created_by:APP.profile.id},{collaborator_id:id,work_date:date,shift:'TARDE',status:'OFF',note:`Off por ${days} dia(s)`,created_by:APP.profile.id})}const {error}=await sb.from('attendance_exceptions').upsert(rows,{onConflict:'collaborator_id,work_date,shift'});if(error)return toast(error.message,true);toast('Período off registrado.');bootstrap()}
+function setOffPeriod(id){
+  const f=$('#offForm'),today=isoDate(new Date());f.reset();f.collaboratorId.value=id;f.startDate.value=today;f.endDate.value=today;$('#offDialog').showModal()
+}
+async function submitOffPeriod(e){
+  e.preventDefault();const f=new FormData(e.currentTarget),id=f.get('collaboratorId'),start=f.get('startDate'),end=f.get('endDate'),note=String(f.get('note')||'').trim();
+  if(end<start)return toast('A data final não pode ser anterior à inicial.',true);
+  const rows=[];for(let d=new Date(start+'T12:00');d<=new Date(end+'T12:00');d.setDate(d.getDate()+1)){const date=isoDate(d);rows.push({collaborator_id:id,work_date:date,shift:'MANHA',status:'OFF',note:note||'Off por período',created_by:APP.profile.id},{collaborator_id:id,work_date:date,shift:'TARDE',status:'OFF',note:note||'Off por período',created_by:APP.profile.id})}
+  const {error}=await sb.from('attendance_exceptions').upsert(rows,{onConflict:'collaborator_id,work_date,shift'});if(error)return toast(error.message,true);$('#offDialog').close();toast('Período off registrado.');bootstrap()
+}
 async function toggleCollaborator(id){const c=APP.collaborators.find(x=>x.id===id),status=c.status==='ACTIVE'?'SUSPENDED':'ACTIVE';const {error}=await sb.from('collaborators').update({status}).eq('id',id);if(error)return toast(error.message,true);toast('Situação atualizada.');bootstrap()}
-async function submitFunction(e){e.preventDefault();const f=new FormData(e.currentTarget),payload={name:f.get('name'),function_type:f.get('type'),default_start:f.get('start')||null,default_end:f.get('end')||null,notes:f.get('notes')||null};const {error}=await sb.from('work_functions').insert(payload);if(error)return toast(error.message,true);$('#functionDialog').close();toast('Função criada.');bootstrap()}
+async function submitFunction(e){
+  e.preventDefault();const f=new FormData(e.currentTarget),type=String(f.get('type'));
+  const payload={name:f.get('name'),function_type:type,notes:f.get('notes')||null};
+  if(type==='PRODUCAO'){payload.default_start=f.get('start')||null;payload.default_end=f.get('end')||null}
+  else{payload.anchor_production_function_id=f.get('anchorFunctionId')||null;payload.morning_start=f.get('morningStart')||'07:00';payload.morning_end=f.get('morningEnd')||'07:20';payload.afternoon_start=f.get('afternoonStart')||'17:00';payload.afternoon_end=f.get('afternoonEnd')||'17:20';payload.rotatable=true}
+  const {error}=await sb.from('work_functions').insert(payload);if(error)return toast(error.message,true);$('#functionDialog').close();toast('Função criada.');bootstrap()
+}
+function updateFunctionTypeFields(){
+  const accum=$('#functionType').value==='ACUMULAVEL';$('#accumulativeFunctionFields').classList.toggle('hidden',!accum);$('#productionFunctionTimes').classList.toggle('hidden',accum)
+}
+function openNewFunction(){
+  $('#functionForm').reset();$('#functionType').value='PRODUCAO';
+  const prods=APP.functions.filter(f=>f.function_type==='PRODUCAO');
+  $('#anchorFunctionSelect').innerHTML=prods.map(f=>`<option value="${f.id}" ${f.name==='Betoneira'?'selected':''}>${esc(f.name)}</option>`).join('');
+  updateFunctionTypeFields();$('#functionDialog').showModal()
+}
 async function generateRotation(e){
   if(e?.preventDefault)e.preventDefault();
   const f=new FormData($('#rotationForm')),start=String(f.get('startDate')),days=num(f.get('days'));
@@ -233,13 +283,107 @@ async function generateRotation(e){
   catch(err){toast(err.message,true)}finally{loading(false)}
 }
 function openRotationDialog(){
-  $('#rotationForm [name=startDate]').value=new Date().toISOString().slice(0,10);
+  $('#rotationForm [name=startDate]').value=isoDate(new Date());
   const accum=APP.functions.filter(f=>f.function_type==='ACUMULAVEL');
-  $('#rotationAccumFunctions').innerHTML=accum.length?accum.map(f=>`<label><input type="checkbox" value="${f.id}"> ${esc(f.name)}</label>`).join(''):'<small>Nenhuma função acumulável cadastrada.</small>';
+  $('#rotationAccumFunctions').innerHTML=accum.length?accum.map(f=>`<label><input type="checkbox" value="${f.id}"><span><b>${esc(f.name)}</b><small>1 responsável/dia · ${timeHM(f.morning_start)||'07:00'}–${timeHM(f.morning_end)||'07:20'} e ${timeHM(f.afternoon_start)||'17:00'}–${timeHM(f.afternoon_end)||'17:20'}</small></span></label>`).join(''):'<small>Nenhuma função acumulável cadastrada.</small>';
   $('#rotationDialog').showModal()
 }
 async function submitSoil(e){e.preventDefault();const f=new FormData(e.currentTarget),payload={code:f.get('code'),name:f.get('name'),origin:f.get('origin'),sand_pct:num(f.get('sand')),clay_pct:num(f.get('clay'))};const {error}=await sb.from('soils').insert(payload);if(error)return toast(error.message,true);$('#soilDialog').close();toast('Terra cadastrada.');bootstrap()}
 async function submitPlan(e){e.preventDefault();const f=new FormData(e.currentTarget),payload={code:f.get('code'),name:f.get('name'),days:num(f.get('days')),times:String(f.get('times')||'').split(',').map(x=>x.trim()).filter(Boolean),description:f.get('description')||null};const {error}=await sb.from('watering_plans').insert(payload);if(error)return toast(error.message,true);$('#planDialog').close();toast('Plano criado.');bootstrap()}
+
+
+function initAdminPeriods(){
+  if(!isAdmin())return;
+  if(!APP.payrollStart){[APP.payrollStart,APP.payrollEnd]=rangeFor('week')}
+  if(!APP.costStart){[APP.costStart,APP.costEnd]=rangeFor('month')}
+  if($('#payrollStart')){$('#payrollStart').value=APP.payrollStart;$('#payrollEnd').value=APP.payrollEnd}
+  if($('#costStart')){$('#costStart').value=APP.costStart;$('#costEnd').value=APP.costEnd}
+}
+async function loadPayrollDashboard(){
+  if(!isAdmin()||!$('#payrollTable'))return;
+  initAdminPeriods();
+  const [summary,cycle]=await Promise.all([
+    sb.rpc('payroll_summary',{p_start:APP.payrollStart,p_end:APP.payrollEnd}),
+    sb.from('payroll_cycles').select('*').eq('status','OPEN').order('start_date',{ascending:false}).limit(1).maybeSingle()
+  ]);
+  if(summary.error){console.error(summary.error);return toast('Não foi possível carregar o financeiro dos colaboradores.',true)}
+  APP.payrollRows=summary.data||[];APP.activeCycle=cycle.data||null;renderCollaborators();renderPayrollDashboard()
+}
+function renderPayrollDashboard(){
+  const rows=APP.payrollRows||[],base=rows.reduce((s,x)=>s+num(x.base_due),0),commission=rows.reduce((s,x)=>s+num(x.commission_due),0),adv=rows.reduce((s,x)=>s+num(x.advances),0),net=rows.reduce((s,x)=>s+num(x.net_due),0);
+  $('#payrollKpis').innerHTML=`<article class="kpi"><small>Diárias</small><strong>${money(base)}</strong><span>período</span></article><article class="kpi"><small>Comissões</small><strong>${money(commission)}</strong><span>produção elegível</span></article><article class="kpi"><small>Adiantamentos</small><strong>${money(adv)}</strong><span>a descontar</span></article><article class="kpi"><small>Líquido devido</small><strong>${money(net)}</strong><span>após descontos</span></article>`;
+  $('#payrollChart').innerHTML=rows.map(r=>`<div class="cost-bar"><div><span>${esc(r.full_name)}</span><strong>${money(r.net_due)}</strong></div><div><i style="width:${net?num(r.net_due)/net*100:0}%"></i></div></div>`).join('')||'<div class="empty-state">Sem dados no período.</div>';
+  $('#payrollTable').innerHTML=`<div class="payroll-head"><span>Colaborador</span><span>Diárias</span><span>Comissão</span><span>Adiant.</span><span>Bruto</span><span>Líquido</span><span>Status</span></div>${rows.map(r=>`<div class="payroll-row"><div><strong>${esc(r.full_name)}</strong><small>${r.eligible_shifts} turno(s) · diária ${money(r.daily_rate)}</small></div><span>${money(r.base_due)}</span><span>${money(r.commission_due)}</span><span>${money(r.advances)}</span><span>${money(r.gross_due)}</span><strong>${money(r.net_due)}</strong><div class="payment-controls"><select data-payment-status="${r.collaborator_id}"><option value="UNPAID" ${r.payment_status==='UNPAID'?'selected':''}>Não pago</option><option value="PENDING" ${r.payment_status==='PENDING'?'selected':''}>Pendente</option><option value="PAID" ${r.payment_status==='PAID'?'selected':''}>Pago</option></select>${r.payment_note?`<small>${esc(r.payment_note)}</small>`:''}</div></div>`).join('')}`;
+}
+async function savePaymentStatus(collaboratorId,status){
+  const r=APP.payrollRows.find(x=>x.collaborator_id===collaboratorId);if(!r)return;
+  let note='';if(status==='PENDING')note=prompt('Por que este pagamento está pendente?','')||'';
+  const payload={collaborator_id:collaboratorId,period_start:APP.payrollStart,period_end:APP.payrollEnd,daily_rate_snapshot:r.daily_rate,eligible_shifts:r.eligible_shifts,base_due:r.base_due,commission_due:r.commission_due,advances_deducted:r.advances,gross_due:r.gross_due,net_due:r.net_due,status,note:note||null,paid_at:status==='PAID'?new Date().toISOString():null,updated_by:APP.profile.id};
+  const {error}=await sb.from('collaborator_payments').upsert(payload,{onConflict:'collaborator_id,period_start,period_end'});if(error)return toast(error.message,true);toast('Situação de pagamento atualizada.');loadPayrollDashboard()
+}
+function setPayrollPeriod(kind){[APP.payrollStart,APP.payrollEnd]=rangeFor(kind);$('#payrollStart').value=APP.payrollStart;$('#payrollEnd').value=APP.payrollEnd;loadPayrollDashboard()}
+async function submitCycle(e){e.preventDefault();const f=new FormData(e.currentTarget),{error}=await sb.rpc('start_payroll_cycle',{p_start_date:f.get('startDate'),p_note:f.get('note')||null});if(error)return toast(error.message,true);$('#cycleDialog').close();toast('Novo ciclo iniciado.');loadPayrollDashboard()}
+async function submitRate(e){e.preventDefault();const f=new FormData(e.currentTarget),{error}=await sb.from('collaborators').update({daily_rate:num(f.get('dailyRate'))}).eq('id',f.get('collaboratorId'));if(error)return toast(error.message,true);$('#rateDialog').close();toast('Diária atualizada.');bootstrap()}
+async function submitAdvance(e){e.preventDefault();const f=new FormData(e.currentTarget),payload={collaborator_id:f.get('collaboratorId'),advance_date:f.get('date'),amount:num(f.get('amount')),note:f.get('note')||null,created_by:APP.profile.id};const {error}=await sb.from('collaborator_advances').insert(payload);if(error)return toast(error.message,true);$('#advanceDialog').close();toast('Adiantamento registrado.');loadPayrollDashboard()}
+function openRate(id){const c=APP.collaborators.find(x=>x.id===id),f=$('#rateForm');f.collaboratorId.value=id;f.dailyRate.value=num(c?.daily_rate);$('#rateDialog').showModal()}
+function openAdvance(id){const f=$('#advanceForm');f.reset();f.collaboratorId.value=id;f.date.value=isoDate(new Date());$('#advanceDialog').showModal()}
+function openNewCycle(){const f=$('#cycleForm');f.reset();f.startDate.value=isoDate(new Date());$('#cycleDialog').showModal()}
+
+async function loadCostsDashboard(){
+  if(!isAdmin()||!$('#costEntriesList'))return;
+  initAdminPeriods();
+  const [entries,items,payroll,prod]=await Promise.all([
+    sb.from('cost_entries').select('*,cost_catalog_items(name)').gte('cost_date',APP.costStart).lte('cost_date',APP.costEnd).order('cost_date',{ascending:false}),
+    sb.from('cost_catalog_items').select('*').eq('active',true).order('category').order('name'),
+    sb.rpc('payroll_summary',{p_start:APP.costStart,p_end:APP.costEnd}),
+    sb.from('v_daily_production').select('*').gte('manufacture_date',APP.costStart).lte('manufacture_date',APP.costEnd)
+  ]);
+  for(const r of [entries,items,payroll,prod])if(r.error){console.error(r.error);return toast('Não foi possível carregar todos os custos.',true)}
+  APP.costEntries=entries.data||[];APP.costItems=items.data||[];renderCosts(entries.data||[],payroll.data||[],prod.data||[])
+}
+function renderCosts(entries,payroll,prod){
+  const manual=entries.reduce((s,x)=>s+num(x.total_amount),0),people=payroll.reduce((s,x)=>s+num(x.gross_due),0),total=manual+people,bricks=prod.reduce((s,x)=>s+num(x.bricks),0);
+  const days=Math.max(1,(new Date(APP.costEnd+'T12:00')-new Date(APP.costStart+'T12:00'))/864e5+1);
+  $('#costKpis').innerHTML=`<article class="kpi"><small>Custo total</small><strong>${money(total)}</strong><span>inclui colaboradores</span></article><article class="kpi"><small>Colaboradores</small><strong>${money(people)}</strong><span>diárias + comissão</span></article><article class="kpi"><small>Tijolos</small><strong>${qty(bricks)}</strong><span>no período</span></article><article class="kpi"><small>Custo / tijolo</small><strong>${bricks?money(total/bricks):money(0)}</strong><span>média atual</span></article>`;
+  const cats={COLABORADORES:people};entries.forEach(e=>cats[e.category]=(cats[e.category]||0)+num(e.total_amount));const max=Math.max(1,...Object.values(cats));
+  $('#costCategoryChart').innerHTML=Object.entries(cats).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="cost-bar"><div><span>${costCategoryLabel(k)}</span><strong>${money(v)}</strong></div><div><i style="width:${v/max*100}%"></i></div></div>`).join('');
+  $('#costProductionSummary').innerHTML=`<div class="production-cost-cards"><div><small>Total produzido</small><strong>${qty(bricks)}</strong></div><div><small>Média diária</small><strong>${qty(bricks/days)}</strong></div><div><small>Média semanal</small><strong>${qty(bricks/days*7)}</strong></div><div><small>Média mensal</small><strong>${qty(bricks/days*30.44)}</strong></div><div><small>Período</small><strong>${dateBR(APP.costStart)} – ${dateBR(APP.costEnd)}</strong></div></div><h3 class="subheading">Colaboradores no período</h3><div class="mini-finance-list">${payroll.map(r=>`<div><span>${esc(r.full_name)}</span><strong>${money(r.gross_due)}</strong></div>`).join('')}</div>`;
+  $('#costEntriesList').innerHTML=entries.map(e=>`<div class="cost-entry"><div><strong>${costCategoryLabel(e.category)}${e.cost_catalog_items?.name?` · ${esc(e.cost_catalog_items.name)}`:''}</strong><small>${dateBR(e.cost_date)} · ${esc(e.description||'')}</small></div><strong>${money(e.total_amount)}</strong><button class="icon-danger" data-delete-cost="${e.id}">×</button></div>`).join('')||'<div class="empty-state">Nenhum custo lançado.</div>';
+  populateCostItems()
+}
+function costCategoryLabel(k){return ({COLABORADORES:'Colaboradores',CEMENT:'Cimento',SOIL:'Terra',SAND:'Areia',MATERIAL:'Outros materiais',ELECTRICITY:'Eletricidade',WATER:'Água',RENT:'Aluguel',OTHER:'Outros custos'})[k]||k}
+function setCostPeriod(kind){[APP.costStart,APP.costEnd]=rangeFor(kind);$('#costStart').value=APP.costStart;$('#costEnd').value=APP.costEnd;loadCostsDashboard()}
+function populateCostItems(){if(!$('#costItemSelect'))return;const cat=$('#costCategory').value,needs=['CEMENT','SOIL','SAND','MATERIAL'].includes(cat);$('#costItemField').classList.toggle('hidden',!needs);$('#costItemSelect').innerHTML=APP.costItems.filter(x=>x.category===cat).map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('')}
+async function submitCost(e){e.preventDefault();const f=new FormData(e.currentTarget),cat=f.get('category'),needs=['CEMENT','SOIL','SAND','MATERIAL'].includes(cat),payload={cost_date:f.get('costDate'),category:cat,catalog_item_id:needs?(f.get('catalogItemId')||null):null,description:f.get('description')||null,quantity:f.get('quantity')?num(f.get('quantity')):null,unit:f.get('unit')||null,total_amount:num(f.get('totalAmount')),note:f.get('note')||null,created_by:APP.profile.id};const {error}=await sb.from('cost_entries').insert(payload);if(error)return toast(error.message,true);$('#costDialog').close();toast('Custo registrado.');loadCostsDashboard()}
+async function submitCostItem(e){e.preventDefault();const f=new FormData(e.currentTarget),{error}=await sb.from('cost_catalog_items').insert({category:f.get('category'),name:f.get('name'),unit:f.get('unit')||null,created_by:APP.profile.id});if(error)return toast(error.message,true);$('#costItemDialog').close();toast('Insumo cadastrado.');loadCostsDashboard()}
+
+function overviewHtml(type){
+  if(type==='schedule')return `<div class="print-document"><h1>Escala dos próximos dias</h1><p>Emitido em ${new Date().toLocaleString('pt-BR')}</p>${$('#scheduleList').innerHTML}</div>`;
+  return `<div class="print-document"><h1>Calendário semanal</h1><p>Emitido em ${new Date().toLocaleString('pt-BR')}</p>${$('#weeklyCalendarFull').innerHTML||$('#weeklyAttendance').innerHTML}</div>`
+}
+function openOverview(type){
+  $('#overviewDialogContent').innerHTML=`<div class="dialog-head"><div><p class="eyebrow">VISUALIZAÇÃO</p><h2>${type==='schedule'?'Escala':'Calendário semanal'}</h2></div><div class="mini-actions"><button class="secondary" data-print-overview="${type}">Imprimir</button><button class="icon" data-close="overviewDialog">×</button></div></div><div class="overview-detail">${overviewHtml(type)}</div>`;
+  $('#overviewDialog').showModal()
+}
+function printOverview(type){
+  const w=window.open('','_blank','width=1100,height=800');if(!w)return toast('O navegador bloqueou a janela de impressão.',true);
+  w.document.write(`<html><head><title>${type==='schedule'?'Escala':'Calendário semanal'}</title><style>body{font-family:Arial,sans-serif;color:#17211e;padding:22px}h1{font-size:22px}section{break-inside:avoid;margin:10px 0;border:1px solid #ccc;padding:10px}.schedule-shifts{display:grid;grid-template-columns:1fr 1fr;gap:10px}.assignment{padding:5px;border-bottom:1px solid #ddd}.assignment-functions span{display:inline-block;margin:3px;padding:4px 6px;border:1px solid #bbb;border-radius:12px}.attendance-table{min-width:100%}.attendance-head,.attendance-row{display:grid;grid-template-columns:120px repeat(7,1fr);border-bottom:1px solid #aaa}.attendance-head>* ,.attendance-row>*{padding:5px;font-size:10px}.attendance-day span{display:block;border:1px solid #ccc;padding:4px;margin:2px}.attendance-day .bad{border:2px solid #000;font-weight:bold}small{display:block}</style></head><body>${overviewHtml(type)}</body></html>`);w.document.close();setTimeout(()=>w.print(),250)
+}
+
+async function sendAdminRecoveryEmail(){
+  loading(true,'Enviando recuperação');
+  try{
+    const redirectTo=location.origin+location.pathname+'?recovery=1';
+    const {error}=await sb.auth.resetPasswordForEmail(ADMIN_RECOVERY_EMAIL,{redirectTo});if(error)throw error;
+    toast('E-mail de recuperação enviado exclusivamente para '+ADMIN_RECOVERY_EMAIL)
+  }catch(err){toast(err.message,true)}finally{loading(false)}
+}
+async function submitRecoveryPassword(e){
+  e.preventDefault();const f=new FormData(e.currentTarget),p=String(f.get('password')),c=String(f.get('confirmPassword'));
+  if(p!==c)return toast('As senhas não coincidem.',true);
+  const {error}=await sb.auth.updateUser({password:p});if(error)return toast(error.message,true);
+  $('#recoveryDialog').close();await sb.auth.signOut();toast('Senha ADMIN alterada. Entre novamente.');$('#appShell').classList.add('hidden');$('#loginScreen').classList.remove('hidden')
+}
 
 async function deleteCatalogEntity(type,id){
   if(!isAdmin())return toast('Apenas ADMIN pode excluir este item.',true);
@@ -265,12 +409,104 @@ async function deleteAssignment(id){
 }
 
 function navigate(view){$$('.view').forEach(v=>v.classList.toggle('active',v.id===view));$$('.nav').forEach(n=>n.classList.toggle('active',n.dataset.view===view));const n=$(`.nav[data-view="${view}"]`);$('#pageTitle').textContent=n?.querySelector('span')?.textContent||'TerraLote';$('#sidebar').classList.remove('open')}
-function bind(){$('#loginForm').addEventListener('submit',login);$('#logoutBtn').onclick=logout;$('#menuBtn').onclick=()=>$('#sidebar').classList.toggle('open');$$('.nav').forEach(b=>b.onclick=()=>navigate(b.dataset.view));$$('[data-go]').forEach(b=>b.onclick=()=>navigate(b.dataset.go));$('#newLotBtn').onclick=()=>{setDefaultLot();$('#lotDialog').showModal()};$('#lotSearch').oninput=e=>renderLots(e.target.value);$('#recipeSelect').addEventListener('change',updateRecipeSummary);$('#hasExtra').onchange=e=>{const show=e.target.value==='YES';$('#extrasWrap').classList.toggle('hidden',!show);const moisture=$('#moistureField');if(moisture){moisture.required=show;if(!show)moisture.value=''}if(show&&!$('#extrasList').children.length)addExtraRow()};$('#plasticWrapped').onchange=e=>$('#wateringField').classList.toggle('hidden',e.target.value==='YES');$('#addExtraBtn').onclick=addExtraRow;$('#lotForm').addEventListener('submit',submitLot);$('#userForm').addEventListener('submit',submitUser);$('#collaboratorForm').addEventListener('submit',submitCollaborator);$('#attendanceForm').addEventListener('submit',submitAttendance);$('#functionForm').addEventListener('submit',submitFunction);$('#soilForm').addEventListener('submit',submitSoil);$('#planForm').addEventListener('submit',submitPlan);$('#newUserBtn').onclick=()=>$('#userDialog').showModal();$('#newCollaboratorBtn').onclick=()=>{$('#collaboratorForm [name=startDate]').value=new Date().toISOString().slice(0,10);$('#collaboratorDialog').showModal()};$('#newFunctionBtn').onclick=()=>$('#functionDialog').showModal();$('#generateRotationBtn').onclick=openRotationDialog;$('#deleteScheduleBtn').onclick=deleteScheduleRange;$('#rotationForm').addEventListener('submit',generateRotation);$('#newSoilBtn').onclick=()=>$('#soilDialog').showModal();$('#newPlanBtn').onclick=()=>$('#planDialog').showModal();$$('[data-task-filter]').forEach(b=>b.onclick=()=>{APP.taskFilter=b.dataset.taskFilter;$$('[data-task-filter]').forEach(x=>x.classList.toggle('active',x===b));renderTasks()});document.addEventListener('click',async e=>{const close=e.target.closest('[data-close]');if(close){document.getElementById(close.dataset.close)?.close();return}const lot=e.target.closest('[data-lot]');if(lot){showLotDetail(lot.dataset.lot);return}const conf=e.target.closest('[data-confirm-task]');if(conf){confirmTask(conf.dataset.confirmTask);return}const del=e.target.closest('[data-delete-lot]');if(del){deleteLot(del.dataset.deleteLot);return}const att=e.target.closest('[data-attendance]');if(att){const f=$('#attendanceForm');f.collaboratorId.value=att.dataset.attendance;f.workDate.value=new Date().toISOString().slice(0,10);$('#attendanceDialog').showModal();return}const off=e.target.closest('[data-off]');if(off){setOffPeriod(off.dataset.off);return}const tc=e.target.closest('[data-toggle-collab]');if(tc){toggleCollaborator(tc.dataset.toggleCollab);return}const ua=e.target.closest('[data-user-action]');if(ua){try{const action=ua.dataset.userAction,id=ua.dataset.user;if(action==='delete'&&!confirm('Excluir este usuário definitivamente?'))return;if(action==='resetPassword'){const password=prompt('Nova senha (mínimo 8 caracteres)');if(!password)return;await adminUserAction(action,id,{password})}else if(action==='lotDeletePermission'){await adminUserAction('setLotDeletePermission',id,{allowed:ua.dataset.allowed==='true'})}else await adminUserAction(action,id);toast('Usuário atualizado.');loadUsers()}catch(err){toast(err.message,true)}return}
-const ds=e.target.closest('[data-delete-soil]');if(ds){deleteCatalogEntity('soil',ds.dataset.deleteSoil);return}
-const dp=e.target.closest('[data-delete-plan]');if(dp){deleteCatalogEntity('plan',dp.dataset.deletePlan);return}
-const dc=e.target.closest('[data-delete-collab]');if(dc){deleteCatalogEntity('collaborator',dc.dataset.deleteCollab);return}
-const df=e.target.closest('[data-delete-function]');if(df){deleteCatalogEntity('function',df.dataset.deleteFunction);return}
-const da=e.target.closest('[data-delete-assignment]');if(da){deleteAssignment(da.dataset.deleteAssignment);return}})}
+function bind(){
+  $('#loginForm').addEventListener('submit',login);
+  $('#forgotPasswordBtn').onclick=sendAdminRecoveryEmail;
+  $('#adminPasswordBtn').onclick=sendAdminRecoveryEmail;
+  $('#recoveryForm').addEventListener('submit',submitRecoveryPassword);
+  $('#logoutBtn').onclick=logout;
+  $('#menuBtn').onclick=()=>$('#sidebar').classList.toggle('open');
+  $$('.nav').forEach(b=>b.onclick=()=>{navigate(b.dataset.view);if(b.dataset.view==='costs')loadCostsDashboard();if(b.dataset.view==='collaborators')loadPayrollDashboard()});
+  $$('[data-go]').forEach(b=>b.onclick=()=>navigate(b.dataset.go));
 
-async function init(){bind();if(!CFG.SUPABASE_URL||CFG.SUPABASE_URL.includes('COLE_AQUI')){$('#loginMessage').textContent='Configure SUPABASE_URL e SUPABASE_PUBLISHABLE_KEY em config.js.';return}const {data:{session}}=await sb.auth.getSession();if(session){try{await getProfile();showApp();await bootstrap()}catch(err){toast(err.message,true)}}if('serviceWorker'in navigator)navigator.serviceWorker.register('service-worker.js?v=430')}
-init();
+  $('#newLotBtn').onclick=()=>{setDefaultLot();$('#lotDialog').showModal()};
+  $('#lotSearch').oninput=e=>renderLots(e.target.value);
+  $('#recipeSelect').addEventListener('change',updateRecipeSummary);
+  $('#hasExtra').onchange=e=>{const show=e.target.value==='YES';$('#extrasWrap').classList.toggle('hidden',!show);const moisture=$('#moistureField');if(moisture){moisture.required=show;if(!show)moisture.value=''}if(show&&!$('#extrasList').children.length)addExtraRow()};
+  $('#plasticWrapped').onchange=e=>$('#wateringField').classList.toggle('hidden',e.target.value==='YES');
+  $('#addExtraBtn').onclick=addExtraRow;
+  $('#lotForm').addEventListener('submit',submitLot);
+
+  $('#userForm').addEventListener('submit',submitUser);
+  $('#newUserBtn').onclick=openNewUser;
+  $('#collaboratorForm').addEventListener('submit',submitCollaborator);
+  $('#attendanceForm').addEventListener('submit',submitAttendance);
+  $('#offForm').addEventListener('submit',submitOffPeriod);
+  $('#cycleForm').addEventListener('submit',submitCycle);
+  $('#rateForm').addEventListener('submit',submitRate);
+  $('#advanceForm').addEventListener('submit',submitAdvance);
+  $('#newCycleBtn').onclick=openNewCycle;
+
+  $('#functionForm').addEventListener('submit',submitFunction);
+  $('#functionType').onchange=updateFunctionTypeFields;
+  $('#newFunctionBtn').onclick=openNewFunction;
+  $('#generateRotationBtn').onclick=openRotationDialog;
+  $('#deleteScheduleBtn').onclick=deleteScheduleRange;
+  $('#rotationForm').addEventListener('submit',generateRotation);
+
+  $('#soilForm').addEventListener('submit',submitSoil);
+  $('#planForm').addEventListener('submit',submitPlan);
+  $('#newSoilBtn').onclick=()=>$('#soilDialog').showModal();
+  $('#newPlanBtn').onclick=()=>$('#planDialog').showModal();
+
+  $('#newCostBtn').onclick=()=>{const f=$('#costForm');f.reset();f.costDate.value=isoDate(new Date());$('#costCategory').value='CEMENT';populateCostItems();$('#costDialog').showModal()};
+  $('#newCostItemBtn').onclick=()=>$('#costItemDialog').showModal();
+  $('#costForm').addEventListener('submit',submitCost);
+  $('#costItemForm').addEventListener('submit',submitCostItem);
+  $('#costCategory').onchange=populateCostItems;
+  $('#applyCostPeriodBtn').onclick=()=>{APP.costStart=$('#costStart').value;APP.costEnd=$('#costEnd').value;loadCostsDashboard()};
+  $('#applyPayrollPeriodBtn').onclick=()=>{APP.payrollStart=$('#payrollStart').value;APP.payrollEnd=$('#payrollEnd').value;loadPayrollDashboard()};
+  $$('[data-cost-period]').forEach(b=>b.onclick=()=>{$$('[data-cost-period]').forEach(x=>x.classList.toggle('active',x===b));setCostPeriod(b.dataset.costPeriod)});
+  $$('[data-payroll-period]').forEach(b=>b.onclick=()=>{$$('[data-payroll-period]').forEach(x=>x.classList.toggle('active',x===b));setPayrollPeriod(b.dataset.payrollPeriod)});
+
+  $$('[data-task-filter]').forEach(b=>b.onclick=()=>{APP.taskFilter=b.dataset.taskFilter;$$('[data-task-filter]').forEach(x=>x.classList.toggle('active',x===b));renderTasks()});
+
+  document.addEventListener('change',e=>{
+    const ps=e.target.closest('[data-payment-status]');if(ps)savePaymentStatus(ps.dataset.paymentStatus,ps.value)
+  });
+
+  document.addEventListener('click',async e=>{
+    const close=e.target.closest('[data-close]');if(close){document.getElementById(close.dataset.close)?.close();return}
+    const print=e.target.closest('[data-print-overview]');if(print){e.stopPropagation();printOverview(print.dataset.printOverview);return}
+    const open=e.target.closest('[data-open-overview]');if(open){e.stopPropagation();openOverview(open.dataset.openOverview);return}
+    const lot=e.target.closest('[data-lot]');if(lot){showLotDetail(lot.dataset.lot);return}
+    const conf=e.target.closest('[data-confirm-task]');if(conf){confirmTask(conf.dataset.confirmTask);return}
+    const del=e.target.closest('[data-delete-lot]');if(del){deleteLot(del.dataset.deleteLot);return}
+
+    const att=e.target.closest('[data-attendance]');if(att){const f=$('#attendanceForm');f.collaboratorId.value=att.dataset.attendance;f.workDate.value=isoDate(new Date());$('#attendanceDialog').showModal();return}
+    const off=e.target.closest('[data-off]');if(off){setOffPeriod(off.dataset.off);return}
+    const rate=e.target.closest('[data-rate]');if(rate){openRate(rate.dataset.rate);return}
+    const adv=e.target.closest('[data-advance]');if(adv){openAdvance(adv.dataset.advance);return}
+    const tc=e.target.closest('[data-toggle-collab]');if(tc){toggleCollaborator(tc.dataset.toggleCollab);return}
+
+    const ua=e.target.closest('[data-user-action]');
+    if(ua){try{
+      const action=ua.dataset.userAction,id=ua.dataset.user;
+      if(action==='edit'){openEditUser(id);return}
+      if(action==='delete'&&!confirm('Excluir este usuário definitivamente?'))return;
+      if(action==='lotDeletePermission')await adminUserAction('setLotDeletePermission',id,{allowed:ua.dataset.allowed==='true'});
+      else await adminUserAction(action,id);
+      toast('Usuário atualizado.');loadUsers()
+    }catch(err){toast(err.message,true)}return}
+
+    const ds=e.target.closest('[data-delete-soil]');if(ds){deleteCatalogEntity('soil',ds.dataset.deleteSoil);return}
+    const dp=e.target.closest('[data-delete-plan]');if(dp){deleteCatalogEntity('plan',dp.dataset.deletePlan);return}
+    const dc=e.target.closest('[data-delete-collab]');if(dc){deleteCatalogEntity('collaborator',dc.dataset.deleteCollab);return}
+    const df=e.target.closest('[data-delete-function]');if(df){deleteCatalogEntity('function',df.dataset.deleteFunction);return}
+    const da=e.target.closest('[data-delete-assignment]');if(da){deleteAssignment(da.dataset.deleteAssignment);return}
+    const cost=e.target.closest('[data-delete-cost]');if(cost&&confirm('Excluir este lançamento de custo?')){const {error}=await sb.from('cost_entries').delete().eq('id',cost.dataset.deleteCost);if(error)toast(error.message,true);else{toast('Custo excluído.');loadCostsDashboard()}return}
+  })
+}
+async function init(){
+  bind();
+  if(!CFG.SUPABASE_URL||CFG.SUPABASE_URL.includes('COLE_AQUI')){$('#loginMessage').textContent='Configure SUPABASE_URL e SUPABASE_PUBLISHABLE_KEY em config.js.';return}
+  sb.auth.onAuthStateChange((event)=>{
+    if(event==='PASSWORD_RECOVERY')setTimeout(()=>$('#recoveryDialog').showModal(),100)
+  });
+  const {data:{session}}=await sb.auth.getSession();
+  if(session){
+    if(new URLSearchParams(location.search).get('recovery')==='1')setTimeout(()=>$('#recoveryDialog').showModal(),150);
+    else try{await getProfile();showApp();await bootstrap()}catch(err){toast(err.message,true)}
+  }
+  if('serviceWorker'in navigator)navigator.serviceWorker.register('service-worker.js?v=440')
+}
