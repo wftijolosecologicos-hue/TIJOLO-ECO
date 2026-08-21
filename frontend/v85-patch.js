@@ -1,333 +1,328 @@
-// TerraLote V8.5 — patch pontual.
-// Carregar DEPOIS de app.js.
+// TerraLote V8.6 — patch pontual
+// Carregar DEPOIS de app.js e v85-patch.js.
 
 (() => {
   'use strict';
 
-  const V85 = {
-    mondayStart(d = new Date()) {
-      const x = new Date(d); x.setHours(12,0,0,0);
-      const dow = x.getDay();
-      x.setDate(x.getDate() - (dow === 0 ? 6 : dow - 1));
+  const V86 = {
+    monday(d=new Date()){
+      const x=new Date(d);x.setHours(12,0,0,0);
+      const dow=x.getDay();
+      x.setDate(x.getDate()-(dow===0?6:dow-1));
       return x;
     },
-    today() { return isoDate(new Date()); },
-    activeRecipe() {
-      return APP.recipes.find(r => r.is_default) || APP.recipes.find(r => r.code === '10-1-1') || APP.recipes[0];
+    addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x},
+    key(d){return isoDate(d)},
+    weekDates(){
+      const m=this.monday();
+      return [0,1,2,3,4].map(i=>this.key(this.addDays(m,i)));
     },
-    lightPlan() {
-      return APP.plans.find(p => /leve/i.test(`${p.name||''} ${p.code||''}`)) || APP.plans[0];
+    weekendExtraDates(){
+      const m=this.monday(), sat=this.key(this.addDays(m,5)), sun=this.key(this.addDays(m,6));
+      return [sat,sun].filter(d =>
+        APP.attendance.some(a=>a.work_date===d&&a.status==='EXTRA') ||
+        APP.assignments.some(a=>a.work_date===d)
+      );
+    },
+    defaultRecipe(){
+      return APP.recipes.find(r=>r.code==='9-1-1'&&r.active!==false) ||
+             APP.recipes.find(r=>r.is_default&&r.active!==false) ||
+             APP.recipes.find(r=>r.active!==false);
     }
   };
 
-  // ---------- NOVO LOTE ----------
-  window.populateLotOptions = function() {
-    $('#lotSoil').innerHTML = APP.soils.map(s =>
+  // ============================================================
+  // 1) NOVO LOTE — APENAS 9-1-1, 8-2-1 E 10-1
+  // ============================================================
+
+  window.populateLotOptions = function(){
+    $('#lotSoil').innerHTML=APP.soils.map(s=>
       `<option value="${s.id}">${esc(s.code)} · ${esc(s.name)} · ${esc(s.origin)}</option>`
     ).join('');
 
-    $('#wateringPlan').innerHTML = APP.plans.map(p => {
-      const days = num(p.days);
-      const suffix = days > 0 ? ` · ${days} dia${days === 1 ? '' : 's'}` : ' · sem molhação';
-      return `<option value="${p.id}">${esc(p.name)}${suffix}</option>`;
+    $('#wateringPlan').innerHTML=APP.plans.map(p=>{
+      const days=num(p.days);
+      return `<option value="${p.id}">${esc(p.name)}${days>0?` · ${days} dia${days===1?'':'s'}`:' · sem molhação'}</option>`;
     }).join('');
 
-    const recipes = [...APP.recipes].sort((a,b) =>
-      (b.is_default?1:0)-(a.is_default?1:0) || String(a.code).localeCompare(String(b.code))
-    );
-    $('#recipeSelect').innerHTML = recipes.map(r =>
-      `<option value="${r.id}" ${r.is_default?'selected':''}>${esc(r.code)}</option>`
+    const allowed=['9-1-1','8-2-1','10-1'];
+    const recipes=APP.recipes
+      .filter(r=>allowed.includes(r.code)&&r.active!==false)
+      .sort((a,b)=>allowed.indexOf(a.code)-allowed.indexOf(b.code));
+
+    $('#recipeSelect').innerHTML=recipes.map(r=>
+      `<option value="${r.id}" ${r.code==='9-1-1'?'selected':''}>${esc(r.code)}</option>`
     ).join('');
 
-    const def = V85.activeRecipe();
-    if (def) $('#recipeSelect').value = def.id;
+    const def=V86.defaultRecipe();
+    if(def)$('#recipeSelect').value=def.id;
     updateRecipeSummary();
   };
 
-  window.setDefaultLot = function() {
-    const d = new Date();
-    const local = new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);
-    const f = $('#lotForm');
-    f.elements.manufacturedAt.value = local;
-    f.elements.shift.value = d.getHours() < 12 ? 'MANHA' : 'TARDE';
-    f.elements.cementType.value = 'CP II';
-    f.elements.plasticWrapped.value = 'YES';
-    f.elements.cureDays.value = '28';
-    $('#hasExtra').value = 'NO';
-    $('#extrasWrap').classList.add('hidden');
-    $('#wateringField').classList.add('hidden');
-    $('#extrasList').innerHTML = '';
-    const def = V85.activeRecipe();
-    if (def) $('#recipeSelect').value = def.id;
-    const light = V85.lightPlan();
-    if (light) $('#wateringPlan').value = light.id;
-    const moisture = $('#moistureField');
-    if (moisture) { moisture.value=''; moisture.required=false; }
+  const oldSetDefaultLot=window.setDefaultLot;
+  window.setDefaultLot=function(){
+    if(oldSetDefaultLot)oldSetDefaultLot();
+    const def=V86.defaultRecipe();
+    if(def)$('#recipeSelect').value=def.id;
     updateRecipeSummary();
   };
 
-  if ($('#plasticWrapped')) {
-    $('#plasticWrapped').onchange = e => {
-      const noPlastic = e.target.value === 'NO';
-      $('#wateringField').classList.toggle('hidden', !noPlastic);
-      if (noPlastic) {
-        const light = V85.lightPlan();
-        if (light) $('#wateringPlan').value = light.id;
-      }
-    };
+  // ============================================================
+  // 2) IMPRESSÃO DE LOTE — SOMENTE A FICHA DO LOTE
+  // ============================================================
+
+  function printLotRecord(l,extras=[],recipe=null){
+    const recipeText=recipe
+      ? `${esc(recipe.code)} · ${recipeLabel(recipe)}`
+      : `${num(l.soil_buckets)} terra · ${num(l.sand_buckets)} areia · ${num(l.cement_buckets)} cimento`;
+
+    const extraHtml=extras.length
+      ? `<section><h2>Materiais extras</h2>${extras.map(x=>`<p><b>${esc(x.material_name)}</b> — ${qty(x.quantity)} ${esc(x.unit)}</p>`).join('')}${l.moisture_coefficient!=null?`<p>Coeficiente de umidade: <b>${esc(l.moisture_coefficient)}</b></p>`:''}</section>`
+      : '';
+
+    const html=`<!doctype html><html><head><meta charset="utf-8"><title>Lote ${esc(l.lot_code)}</title>
+    <style>
+      @page{size:A4;margin:16mm}
+      *{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#14231f;margin:0;background:#fff}
+      .sheet{max-width:760px;margin:auto}.brand{border-bottom:3px solid #164c40;padding-bottom:12px;margin-bottom:20px}
+      .brand small{font-size:10px;letter-spacing:.14em;color:#65756f}.brand h1{margin:5px 0 0;font-size:25px}
+      .code{font-size:33px;font-weight:800;letter-spacing:.03em;color:#123f35;margin:18px 0}
+      .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.cell{border:1px solid #d9e1de;border-radius:9px;padding:11px;min-height:62px}
+      .cell small{display:block;text-transform:uppercase;font-size:8px;letter-spacing:.08em;color:#6c7975;margin-bottom:6px}
+      .cell strong{font-size:13px}section{margin-top:18px;border-top:1px solid #d9e1de;padding-top:13px}section h2{font-size:13px;margin:0 0 9px}
+      section p{font-size:11px;margin:5px 0}.foot{margin-top:28px;border-top:1px solid #d9e1de;padding-top:8px;font-size:8px;color:#74807c;display:flex;justify-content:space-between}
+      @media print{body{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
+    </style></head><body><div class="sheet">
+      <div class="brand"><small>TERRALOTE · RASTREABILIDADE</small><h1>Ficha do lote</h1></div>
+      <div class="code">${esc(l.lot_code)}</div>
+      <div class="grid">
+        <div class="cell"><small>Fabricação</small><strong>${dateBR(l.manufactured_at,true)}</strong></div>
+        <div class="cell"><small>Turno</small><strong>${shiftLabel(l.shift)}</strong></div>
+        <div class="cell"><small>Quantidade</small><strong>${qty(l.quantity)} tijolos</strong></div>
+        <div class="cell"><small>Responsável</small><strong>${esc(l.responsible_snapshot)}</strong></div>
+        <div class="cell"><small>Terra / origem</small><strong>${esc(l.soil_code||l.soil_name||'—')}</strong></div>
+        <div class="cell"><small>Cura programada</small><strong>${num(l.cure_days)} dias</strong></div>
+      </div>
+      <section><h2>Traço</h2><p><b>${recipeText}</b></p><p>Tipo de cimento: <b>${esc(l.cement_type||'—')}</b></p></section>
+      <section><h2>Proteção e molhação</h2><p>Plástico-filme: <b>${l.plastic_wrapped?'SIM':'NÃO'}</b></p>${!l.plastic_wrapped&&l.watering_plan_name?`<p>Plano: <b>${esc(l.watering_plan_name)}</b></p>`:''}</section>
+      ${extraHtml}
+      ${l.notes?`<section><h2>Observações</h2><p>${esc(l.notes)}</p></section>`:''}
+      <div class="foot"><span>TerraLote · Controle institucional</span><span>Impresso em ${new Date().toLocaleString('pt-BR')}</span></div>
+    </div><script>window.onload=()=>setTimeout(()=>window.print(),120);<\/script></body></html>`;
+
+    const w=window.open('','_blank','width=900,height=760');
+    if(!w)return toast('O navegador bloqueou a janela de impressão.',true);
+    w.document.open();w.document.write(html);w.document.close();
   }
 
-  // ---------- CALENDÁRIO SEGUNDA → DOMINGO ----------
-  window.renderDashboardTeam = function() {
-    const today = new Date(); today.setHours(0,0,0,0);
-    const upcoming = APP.assignments
-      .filter(a => new Date(a.work_date+'T12:00:00') >= today)
-      .slice().sort((a,b) => a.work_date.localeCompare(b.work_date) || a.shift.localeCompare(b.shift));
-    const dates = [...new Set(upcoming.map(a=>a.work_date))].slice(0,4);
+  window.showLotDetail=async function(id){
+    const l=APP.lots.find(x=>x.id===id)||(await sb.from('v_lot_operational').select('*').eq('id',id).single()).data;
+    if(!l)return;
+    const [{data:extras},{data:rawLot}]=await Promise.all([
+      sb.from('lot_extra_materials').select('*').eq('lot_id',id),
+      sb.from('lots').select('*').eq('id',id).single()
+    ]);
+    const merged={...rawLot,...l};
+    const r=APP.recipes.find(x=>x.id===merged.recipe_id);
+    const recipeText=r?`${esc(r.code)} · ${recipeLabel(r)}`:`${merged.soil_buckets} terra · ${merged.sand_buckets} areia · ${merged.cement_buckets} cimento`;
 
-    $('#dashboardSchedule').innerHTML = dates.map(d => {
-      const rows = upcoming.filter(a=>a.work_date===d);
-      return `<section class="dash-schedule-day">
+    $('#detailContent').innerHTML=`<div class="dialog-head"><div><p class="eyebrow">RASTREABILIDADE</p><h2>${esc(merged.lot_code)}</h2></div><button class="icon" data-close="detailDialog">×</button></div>
+      <div class="detail-grid">
+        <div class="detail-cell"><small>Fabricação</small><strong>${dateBR(merged.manufactured_at,true)}</strong></div>
+        <div class="detail-cell"><small>Turno</small><strong>${shiftLabel(merged.shift)}</strong></div>
+        <div class="detail-cell"><small>Produção</small><strong>${qty(merged.quantity)}</strong></div>
+        <div class="detail-cell"><small>Responsável</small><strong>${esc(merged.responsible_snapshot)}</strong></div>
+        <div class="detail-cell"><small>Terra</small><strong>${esc(merged.soil_code||'')}</strong></div>
+        <div class="detail-cell"><small>Cura</small><strong>${merged.cure_days} dias</strong></div>
+      </div>
+      <h3>Traço</h3><p><strong>${recipeText}</strong> · Cimento ${esc(merged.cement_type)}</p>
+      ${extras?.length?`<h3>Materiais extras</h3><p>${extras.map(x=>`${esc(x.material_name)}: ${x.quantity} ${esc(x.unit)}`).join(' · ')}</p>${merged.moisture_coefficient!=null?`<p>Coeficiente de umidade: <strong>${merged.moisture_coefficient}</strong></p>`:''}`:''}
+      <p>Plástico-filme: <strong>${merged.plastic_wrapped?'SIM':'NÃO'}</strong></p>
+      <div class="dialog-actions">
+        <button class="secondary" id="v86PrintLot">Imprimir ficha</button>
+        ${(isAdmin()||APP.profile?.can_delete_lots)?`<button class="secondary danger-action" data-delete-lot="${merged.id}">Excluir lote</button>`:''}
+      </div>`;
+
+    $('#v86PrintLot').onclick=()=>printLotRecord(merged,extras||[],r);
+    $('#detailDialog').showModal();
+  };
+
+  // ============================================================
+  // 3) CALENDÁRIO — ADMIN CLICA DIRETO NO TURNO
+  // ============================================================
+
+  function addAttendanceClearButton(){
+    const f=$('#attendanceForm');
+    if(!f||$('#v86ClearAttendance'))return;
+    const btn=document.createElement('button');
+    btn.type='button';btn.id='v86ClearAttendance';btn.className='secondary danger-action';
+    btn.textContent='Remover marcação';
+    btn.onclick=async()=>{
+      const id=f.elements.collaboratorId.value,date=f.elements.workDate.value,shift=f.elements.shift.value;
+      if(!id||!date||!shift)return;
+      const {error}=await sb.from('attendance_exceptions')
+        .delete().eq('collaborator_id',id).eq('work_date',date).eq('shift',shift);
+      if(error)return toast(error.message,true);
+      if([0,6].includes(new Date(date+'T12:00').getDay())){
+        await sb.rpc('refresh_extra_schedule_for_day',{p_work_date:date});
+      }
+      $('#attendanceDialog').close();toast('Marcação removida.');bootstrap();
+    };
+    const submit=f.querySelector('button[type=submit]');
+    submit?.parentNode?.insertBefore(btn,submit);
+  }
+  addAttendanceClearButton();
+
+  function openCalendarAttendance(collabId,date,shift){
+    if(!isAdmin())return;
+    const f=$('#attendanceForm'),existing=APP.attendance.find(a=>a.collaborator_id===collabId&&a.work_date===date&&a.shift===shift);
+    f.elements.collaboratorId.value=collabId;
+    f.elements.workDate.value=date;
+    f.elements.shift.value=shift;
+    f.elements.status.value=existing?.status||([0,6].includes(new Date(date+'T12:00').getDay())?'EXTRA':'ABSENT');
+    f.elements.note.value=existing?.note||'';
+    $('#v86ClearAttendance').classList.toggle('hidden',!existing);
+    $('#attendanceDialog').showModal();
+  }
+
+  // Substitui o save de presença para recalcular sábado/domingo automaticamente.
+  $('#attendanceForm').addEventListener('submit',async e=>{
+    e.preventDefault();e.stopImmediatePropagation();
+    const f=new FormData(e.currentTarget);
+    const payload={
+      collaborator_id:f.get('collaboratorId'),
+      work_date:f.get('workDate'),
+      shift:f.get('shift'),
+      status:f.get('status'),
+      note:f.get('note')||null,
+      created_by:APP.profile.id
+    };
+    const {error}=await sb.from('attendance_exceptions').upsert(payload,{onConflict:'collaborator_id,work_date,shift'});
+    if(error)return toast(error.message,true);
+    if([0,6].includes(new Date(payload.work_date+'T12:00').getDay())){
+      const {error:extraError}=await sb.rpc('refresh_extra_schedule_for_day',{p_work_date:payload.work_date});
+      if(extraError)console.error(extraError);
+    }
+    $('#attendanceDialog').close();toast('Calendário atualizado.');bootstrap();
+  },true);
+
+  // ============================================================
+  // 4) CALENDÁRIO SEMANAL: SEGUNDA → DOMINGO
+  // ============================================================
+
+  window.renderDashboardTeam=function(){
+    const weekDays=[...V86.weekDates(),...[
+      V86.key(V86.addDays(V86.monday(),5)),
+      V86.key(V86.addDays(V86.monday(),6))
+    ]];
+
+    // Escala da visão geral: semana operacional completa + extras.
+    const scheduleDates=[...V86.weekDates(),...V86.weekendExtraDates()];
+    $('#dashboardSchedule').innerHTML=scheduleDates.map(d=>{
+      const rows=APP.assignments.filter(a=>a.work_date===d);
+      return `<section class="dash-schedule-day ${rows.length?'':'v86-empty-day'}">
         <header><strong>${new Date(d+'T12:00').toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'2-digit'})}</strong></header>
-        ${['MANHA','TARDE'].map(sh => {
-          const groups = groupAssignments(rows.filter(a=>a.shift===sh));
-          return `<div><small>${sh==='MANHA'?'MANHÃ':'TARDE'}</small><div>${
-            groups.map(g=>`<span><b>${esc(g.name)}</b> ${g.items.map(a=>esc(functionAssignmentLabel(a))).join(' + ')}</span>`).join('') || '<em>Sem escala</em>'
-          }</div></div>`;
+        ${['MANHA','TARDE'].map(sh=>{
+          const groups=groupAssignments(rows.filter(a=>a.shift===sh));
+          return `<div><small>${sh==='MANHA'?'MANHÃ':'TARDE'}</small><div>${groups.map(g=>`<span><b>${esc(g.name)}</b> ${g.items.map(a=>esc(functionAssignmentLabel(a))).join(' + ')}</span>`).join('')||'<em>Sem atribuição</em>'}</div></div>`;
         }).join('')}
       </section>`;
-    }).join('') || '<div class="empty-state">Nenhuma escala para os próximos dias.</div>';
+    }).join('');
 
-    const start = V85.mondayStart(), days=[];
-    for(let i=0;i<7;i++){ const d=new Date(start); d.setDate(start.getDate()+i); days.push(isoDate(d)); }
-
-    const collabs = APP.collaborators.filter(c=>c.status!=='INACTIVE');
-    const head = days.map(d=>`<span>${new Date(d+'T12:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit'})}</span>`).join('');
-    const rows = collabs.map(c=>{
-      const cells = days.map(d=>{
-        const m=attendanceState(c.id,d,'MANHA'), t=attendanceState(c.id,d,'TARDE');
+    const collabs=APP.collaborators.filter(c=>c.status!=='INACTIVE');
+    const head=weekDays.map(d=>`<span>${new Date(d+'T12:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit'})}</span>`).join('');
+    const rows=collabs.map(c=>{
+      const cells=weekDays.map(d=>{
+        const m=attendanceState(c.id,d,'MANHA'),t=attendanceState(c.id,d,'TARDE');
         return `<div class="attendance-day">
-          <span class="${attendanceClass(m.status)}"><b>MANHÃ</b> ${attendanceShort(m.status)}${m.note?`<small>${esc(m.note)}</small>`:''}</span>
-          <span class="${attendanceClass(t.status)}"><b>TARDE</b> ${attendanceShort(t.status)}${t.note?`<small>${esc(t.note)}</small>`:''}</span>
+          <button type="button" class="${attendanceClass(m.status)} v86-calendar-shift" data-calendar-collab="${c.id}" data-calendar-date="${d}" data-calendar-shift="MANHA"><b>MANHÃ</b> ${attendanceShort(m.status)}${m.note?`<small>${esc(m.note)}</small>`:''}</button>
+          <button type="button" class="${attendanceClass(t.status)} v86-calendar-shift" data-calendar-collab="${c.id}" data-calendar-date="${d}" data-calendar-shift="TARDE"><b>TARDE</b> ${attendanceShort(t.status)}${t.note?`<small>${esc(t.note)}</small>`:''}</button>
         </div>`;
       }).join('');
       return `<div class="attendance-row"><strong>${esc(c.full_name)}</strong>${cells}</div>`;
     }).join('');
-    const calendar = `<div class="attendance-table"><div class="attendance-head"><span>Colaborador</span>${head}</div>${rows}</div>`;
-    $('#weeklyAttendance').innerHTML = calendar;
-    if ($('#weeklyCalendarFull')) $('#weeklyCalendarFull').innerHTML = calendar;
+    const calendar=`<div class="attendance-table"><div class="attendance-head"><span>Colaborador</span>${head}</div>${rows}</div>`;
+    $('#weeklyAttendance').innerHTML=calendar;
+    if($('#weeklyCalendarFull'))$('#weeklyCalendarFull').innerHTML=calendar;
   };
 
-  // ---------- FUNÇÕES / ESCALA ----------
-  window.functionAssignmentLabel = function(a) {
-    const n = a.work_functions?.name || 'Função';
-    if (a.work_functions?.function_type === 'PRODUCAO') return n;
-    const start=timeHM(a.start_time), end=timeHM(a.end_time);
-    return `${n}${start&&end?` · ${start}–${end}`:''}`;
-  };
-
-  function ensureFunctionEditField() {
-    const form = $('#functionForm');
-    if (!form) return;
-    if (!form.elements.functionId) {
-      const input=document.createElement('input');
-      input.type='hidden'; input.name='functionId';
-      form.prepend(input);
+  document.addEventListener('click',e=>{
+    const c=e.target.closest('.v86-calendar-shift');
+    if(c&&isAdmin()){
+      e.preventDefault();e.stopPropagation();
+      openCalendarAttendance(c.dataset.calendarCollab,c.dataset.calendarDate,c.dataset.calendarShift);
     }
-    const title=form.querySelector('.dialog-head h2');
-    if (title) title.id='functionDialogTitle';
-  }
+  },true);
 
-  window.openNewFunction = function() {
-    ensureFunctionEditField();
-    const f=$('#functionForm'); f.reset(); f.elements.functionId.value='';
-    $('#functionDialogTitle').textContent='Nova função';
-    $('#functionType').disabled=false;
-    $('#functionType').value='PRODUCAO';
-    const prods=APP.functions.filter(x=>x.function_type==='PRODUCAO');
-    $('#anchorFunctionSelect').innerHTML=prods.map(x=>`<option value="${x.id}" ${x.name==='Betoneira'?'selected':''}>${esc(x.name)}</option>`).join('');
-    $('#productionFunctionTimes').classList.add('hidden');
-    $('#accumulativeFunctionFields').classList.add('hidden');
-    $('#functionDialog').showModal();
+  // ============================================================
+  // 5) ESCALA — SEMANA COMPLETA + FUNÇÕES MELHOR ORGANIZADAS
+  // ============================================================
+
+  window.openRotationDialog=function(){
+    const monday=V86.key(V86.monday());
+    $('#rotationForm [name=startDate]').value=monday;
+    const daysField=$('#rotationForm [name=days]');
+    if(daysField){daysField.value='5';daysField.readOnly=true;}
+
+    const prod=APP.functions.filter(f=>f.function_type==='PRODUCAO');
+    const accum=APP.functions.filter(f=>f.function_type==='ACUMULAVEL');
+
+    $('#rotationAccumFunctions').innerHTML=`
+      <div class="v86-rotation-block">
+        <div class="v86-rotation-title"><span>1</span><div><strong>Funções de produção</strong><small>Rodízio obrigatório · uma função por colaborador/turno</small></div></div>
+        <div class="v86-production-pills">${prod.map((f,i)=>`<span><b>${i+1}</b>${esc(f.name)}</span>`).join('')}</div>
+      </div>
+      <div class="v86-rotation-block">
+        <div class="v86-rotation-title"><span>2</span><div><strong>Funções acumuláveis</strong><small>Selecione apenas as que devem entrar nesta semana</small></div></div>
+        <div class="v86-accum-list">${accum.map(f=>`<label>
+          <input type="checkbox" value="${f.id}">
+          <div><strong>${esc(f.name)}</strong><small>${timeHM(f.morning_start)||'07:00'}–${timeHM(f.morning_end)||'07:20'} · ${timeHM(f.afternoon_start)||'17:00'}–${timeHM(f.afternoon_end)||'17:20'}</small></div>
+        </label>`).join('')||'<small>Nenhuma função acumulável cadastrada.</small>'}</div>
+      </div>
+      <div class="v86-week-note"><strong>Semana:</strong> segunda a sexta. Sábado/domingo entram automaticamente quando você marcar trabalho EXTRA no Calendário.</div>`;
+    $('#rotationDialog').showModal();
   };
+  $('#generateRotationBtn').onclick=openRotationDialog;
 
-  window.openEditFunctionV85 = function(id) {
-    ensureFunctionEditField();
-    const x=APP.functions.find(f=>f.id===id); if(!x) return;
-    const f=$('#functionForm'); f.reset();
-    f.elements.functionId.value=x.id;
-    f.elements.name.value=x.name||'';
-    f.elements.type.value=x.function_type||'PRODUCAO';
-    f.elements.notes.value=x.notes||'';
-    $('#functionType').disabled=true;
-    const prods=APP.functions.filter(v=>v.function_type==='PRODUCAO');
-    $('#anchorFunctionSelect').innerHTML=prods.map(v=>`<option value="${v.id}">${esc(v.name)}</option>`).join('');
-    if(x.function_type==='ACUMULAVEL'){
-      $('#accumulativeFunctionFields').classList.remove('hidden');
-      $('#productionFunctionTimes').classList.add('hidden');
-      f.elements.anchorFunctionId.value=x.anchor_production_function_id||prods.find(v=>v.name==='Betoneira')?.id||'';
-      f.elements.morningStart.value=timeHM(x.morning_start)||'07:00';
-      f.elements.morningEnd.value=timeHM(x.morning_end)||'07:20';
-      f.elements.afternoonStart.value=timeHM(x.afternoon_start)||'17:00';
-      f.elements.afternoonEnd.value=timeHM(x.afternoon_end)||'17:20';
-    } else {
-      $('#accumulativeFunctionFields').classList.add('hidden');
-      $('#productionFunctionTimes').classList.add('hidden');
-    }
-    $('#functionDialogTitle').textContent='Editar função';
-    $('#functionDialog').showModal();
-  };
+  window.renderSchedule=function(){
+    const dates=[...V86.weekDates(),...V86.weekendExtraDates()];
+    const prod=APP.functions.filter(f=>f.function_type==='PRODUCAO');
+    const accum=APP.functions.filter(f=>f.function_type==='ACUMULAVEL');
 
-  $('#functionType').onchange = () => {
-    const accum=$('#functionType').value==='ACUMULAVEL';
-    $('#accumulativeFunctionFields').classList.toggle('hidden',!accum);
-    $('#productionFunctionTimes').classList.add('hidden');
-  };
-  $('#newFunctionBtn').onclick=openNewFunction;
-
-  // Intercepta o submit antigo, permitindo editar e removendo horário de Produção.
-  $('#functionForm').addEventListener('submit', async e => {
-    e.preventDefault(); e.stopImmediatePropagation();
-    const f=new FormData(e.currentTarget), id=String(f.get('functionId')||''), type=$('#functionType').value;
-    const payload={name:String(f.get('name')).trim(),notes:String(f.get('notes')||'').trim()||null};
-    if(type==='PRODUCAO'){
-      payload.default_start=null; payload.default_end=null;
-    } else {
-      payload.anchor_production_function_id=f.get('anchorFunctionId')||null;
-      payload.morning_start=f.get('morningStart')||'07:00';
-      payload.morning_end=f.get('morningEnd')||'07:20';
-      payload.afternoon_start=f.get('afternoonStart')||'17:00';
-      payload.afternoon_end=f.get('afternoonEnd')||'17:20';
-    }
-    const q=id ? sb.from('work_functions').update(payload).eq('id',id)
-               : sb.from('work_functions').insert({...payload,function_type:type,rotatable:true});
-    const {error}=await q;
-    if(error) return toast(error.message,true);
-    $('#functionDialog').close(); toast(id?'Função atualizada.':'Função criada.'); bootstrap();
-  }, true);
-
-  window.renderSchedule = function() {
-    const today=V85.today(), days={};
-    APP.assignments.filter(a=>a.work_date>=today).forEach(a=>{
-      (days[a.work_date]??={MANHA:[],TARDE:[]})[a.shift].push(a);
-    });
-
-    $('#functionsList').innerHTML = `
-      <div class="v85-function-bank-head"><div><small>BANCO DE FUNÇÕES</small><strong>${APP.functions.length} cadastrada(s)</strong></div></div>
-      <div class="v85-function-bank">
-      ${APP.functions.map(f=>`<article class="v85-function-card ${f.function_type==='ACUMULAVEL'?'accum':''}">
-        <div><strong>${esc(f.name)}</strong><small>${f.function_type==='PRODUCAO'?'Produção':'Acumulável'}</small>
-        ${f.function_type==='ACUMULAVEL'?`<em>${timeHM(f.morning_start)||'07:00'}–${timeHM(f.morning_end)||'07:20'} · ${timeHM(f.afternoon_start)||'17:00'}–${timeHM(f.afternoon_end)||'17:20'}</em>`:''}</div>
-        ${isAdmin()?`<div><button class="secondary v85-edit-function" data-function-id="${f.id}">Editar</button><button class="danger-action v85-delete-function" data-function-id="${f.id}">Excluir</button></div>`:''}
-      </article>`).join('')}
+    $('#functionsList').innerHTML=`
+      <div class="v86-functions-wrap">
+        <section class="v86-functions-section">
+          <div class="v86-functions-head"><div><small>PRODUÇÃO</small><h3>Funções do rodízio</h3><p>Sem horário individual. Uma função de produção por colaborador em cada turno.</p></div><span>${prod.length}</span></div>
+          <div class="v86-functions-grid">${prod.map(f=>`<article><div><strong>${esc(f.name)}</strong><small>Produção</small></div>${isAdmin()?`<div class="v86-function-actions"><button class="secondary v85-edit-function" data-function-id="${f.id}">Editar</button><button class="danger-action v85-delete-function" data-function-id="${f.id}">Excluir</button></div>`:''}</article>`).join('')}</div>
+        </section>
+        <section class="v86-functions-section v86-accum-section">
+          <div class="v86-functions-head"><div><small>ACUMULÁVEIS</small><h3>Responsabilidades adicionais</h3><p>Podem acompanhar uma função de produção.</p></div><span>${accum.length}</span></div>
+          <div class="v86-functions-grid">${accum.map(f=>`<article><div><strong>${esc(f.name)}</strong><small>${timeHM(f.morning_start)||'07:00'}–${timeHM(f.morning_end)||'07:20'} · ${timeHM(f.afternoon_start)||'17:00'}–${timeHM(f.afternoon_end)||'17:20'}</small></div>${isAdmin()?`<div class="v86-function-actions"><button class="secondary v85-edit-function" data-function-id="${f.id}">Editar</button><button class="danger-action v85-delete-function" data-function-id="${f.id}">Excluir</button></div>`:''}</article>`).join('')}</div>
+        </section>
       </div>`;
 
-    $('#scheduleList').innerHTML=Object.entries(days).sort(([a],[b])=>a.localeCompare(b)).map(([d,sh])=>
-      `<section class="schedule-day"><h3>${new Date(d+'T12:00').toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long'})}</h3>
-      <div class="schedule-shifts">${['MANHA','TARDE'].map(shift=>`<div class="schedule-shift"><h4>${shift==='MANHA'?'Manhã':'Tarde'}</h4>${
-        groupAssignments(sh[shift]).map(g=>`<div class="assignment multi"><strong>${esc(g.name)}</strong><div class="assignment-functions">${
-          g.items.map(a=>`<span class="${a.work_functions?.function_type==='ACUMULAVEL'?'accum':''}">${esc(functionAssignmentLabel(a))}${isAdmin()?`<button data-delete-assignment="${a.id}">×</button>`:''}</span>`).join('')
-        }</div></div>`).join('')||'—'
-      }</div>`).join('')}</div></section>`
-    ).join('')||'<div>Nenhuma escala futura gerada.</div>';
+    $('#scheduleList').innerHTML=dates.map(d=>{
+      const sh={MANHA:APP.assignments.filter(a=>a.work_date===d&&a.shift==='MANHA'),TARDE:APP.assignments.filter(a=>a.work_date===d&&a.shift==='TARDE')};
+      const dow=new Date(d+'T12:00').getDay();
+      const extra=dow===0||dow===6;
+      return `<section class="schedule-day ${extra?'v86-extra-day':''}">
+        <div class="v86-day-head"><h3>${new Date(d+'T12:00').toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long'})}</h3>${extra?'<span>EXTRA</span>':''}</div>
+        <div class="schedule-shifts">${['MANHA','TARDE'].map(shift=>`<div class="schedule-shift"><h4>${shift==='MANHA'?'Manhã':'Tarde'}</h4>${
+          groupAssignments(sh[shift]).map(g=>`<div class="assignment multi"><strong>${esc(g.name)}</strong><div class="assignment-functions">${g.items.map(a=>`<span class="${a.work_functions?.function_type==='ACUMULAVEL'?'accum':''}">${esc(functionAssignmentLabel(a))}${isAdmin()?`<button data-delete-assignment="${a.id}" title="Remover">×</button>`:''}</span>`).join('')}</div></div>`).join('')||'<div class="v86-no-assignment">Sem atribuição</div>'
+        }</div>`).join('')}</div>
+      </section>`;
+    }).join('');
   };
 
-  document.addEventListener('click', async e=>{
-    const edit=e.target.closest('.v85-edit-function');
-    if(edit){ e.preventDefault();e.stopImmediatePropagation();openEditFunctionV85(edit.dataset.functionId);return; }
-    const del=e.target.closest('.v85-delete-function');
-    if(del){
-      e.preventDefault();e.stopImmediatePropagation();
-      if(!confirm('Excluir esta função PERMANENTEMENTE do banco de dados? As atribuições vinculadas também serão removidas.'))return;
-      const {error}=await sb.rpc('delete_work_function_permanently',{p_function_id:del.dataset.functionId});
-      if(error)return toast(error.message,true);
-      toast('Função excluída permanentemente.');bootstrap();return;
-    }
-  }, true);
+  // ============================================================
+  // 6) CUSTOS — VOLTA À BASE INSTITUCIONAL, MAIS PROFISSIONAL
+  // ============================================================
 
-  // ---------- USUÁRIOS: ADMIN PODE DEFINIR NOVA SENHA ----------
-  window.openEditUser = function(id) {
-    const u=APP.users.find(x=>x.id===id);if(!u)return;
-    const f=$('#userForm');f.reset();f.userId.value=u.id;f.fullName.value=u.full_name;f.username.value=u.username;f.role.value=u.role;f.canDeleteLots.checked=Boolean(u.can_delete_lots);
-    const wrap=$('.user-create-only');
-    wrap.classList.remove('hidden');
-    const label=wrap.closest('label')||wrap;
-    const input=f.password;
-    input.required=false; input.value=''; input.placeholder='Deixe vazio para manter a senha atual';
-    if(label.childNodes[0]) label.childNodes[0].textContent='Nova senha (opcional)';
-    $('#userDialogTitle').textContent='Editar usuário';$('#userDialog').showModal();
-  };
-
-  $('#userForm').addEventListener('submit', async e=>{
-    const fd=new FormData(e.currentTarget),userId=String(fd.get('userId')||'');
-    if(!userId)return; // criação continua no fluxo existente.
-    e.preventDefault();e.stopImmediatePropagation();
-    const payload={
-      fullName:String(fd.get('fullName')).trim(),
-      username:String(fd.get('username')).trim(),
-      role:String(fd.get('role')),
-      canDeleteLots:fd.get('canDeleteLots')==='on',
-      password:String(fd.get('password')||'')
-    };
-    loading(true,'Atualizando usuário');
-    try{
-      await adminUserAction('edit',userId,payload);
-      $('#userDialog').close();toast(payload.password?'Usuário e senha atualizados.':'Usuário atualizado.');await loadUsers();
-    }catch(err){toast(err.message,true)}finally{loading(false)}
-  }, true);
-
-  // ---------- COLABORADORES: ORGANIZAÇÃO + INDICADORES ----------
-  function restructureCollaborators() {
-    const section=$('#collaborators'), list=$('#collaboratorsList');
-    if(!section||!list||$('#v85TeamInsights'))return;
-
-    const insights=document.createElement('div');
-    insights.id='v85TeamInsights';insights.className='v85-team-insights';
-    const financeToolbar=section.querySelector('.finance-toolbar');
-    financeToolbar?.before(insights);
-
-    const panel=document.createElement('article');
-    panel.className='panel v85-manage-collaborators';
-    panel.innerHTML='<div class="panel-head"><div><p class="eyebrow">CADASTRO</p><h2>Gerenciar colaboradores</h2><p>Colaboradores cadastrados, presença e ações administrativas.</p></div></div>';
-    list.parentNode.insertBefore(panel,list);
-    panel.appendChild(list);
-  }
-
-  function renderTeamInsights() {
-    const box=$('#v85TeamInsights');if(!box||!isAdmin())return;
-    const active=APP.collaborators.filter(c=>c.status==='ACTIVE');
-    const today=V85.today();
-    const off=active.filter(c=>['OFF','ABSENT'].includes(attendanceState(c.id,today,'MANHA').status)||['OFF','ABSENT'].includes(attendanceState(c.id,today,'TARDE').status)).length;
-    const avgRate=active.length?active.reduce((s,c)=>s+num(c.daily_rate),0)/active.length:0;
-    const payroll=APP.payrollRows||[];
-    const totalPayroll=payroll.reduce((s,r)=>s+num(r.net_due),0);
-    const max=Math.max(1,...payroll.map(r=>num(r.net_due)));
-    box.innerHTML=`<div class="v85-insight-grid">
-      <article><small>Equipe ativa</small><strong>${active.length}</strong><span>colaboradores</span></article>
-      <article><small>Falta / Off hoje</small><strong>${off}</strong><span>com ocorrência</span></article>
-      <article><small>Diária média</small><strong>${money(avgRate)}</strong><span>equipe ativa</span></article>
-      <article><small>Folha líquida</small><strong>${money(totalPayroll)}</strong><span>período selecionado</span></article>
-    </div>
-    <article class="panel v85-mini-chart"><div class="panel-head"><div><h2>Custo por colaborador</h2><p>Valor líquido no período.</p></div></div>
-      ${payroll.map(r=>`<button class="v85-person-bar" data-person-cost="${r.collaborator_id}"><span>${esc(r.full_name)}</span><i><b style="width:${num(r.net_due)/max*100}%"></b></i><strong>${money(r.net_due)}</strong></button>`).join('')||'<div class="empty-state">Sem dados financeiros.</div>'}
-    </article>`;
-  }
-
-  const oldRenderCollaborators=renderCollaborators;
-  window.renderCollaborators=function(){ oldRenderCollaborators(); restructureCollaborators(); renderTeamInsights(); };
-  const oldRenderPayroll=renderPayrollDashboard;
-  window.renderPayrollDashboard=function(){ oldRenderPayroll(); renderTeamInsights(); };
-
-  // ---------- CUSTOS: INDICADORES + INTERAÇÃO ----------
-  function ensureCostDetailDialog(){
-    if($('#v85CostDetail'))return;
-    const d=document.createElement('dialog');d.id='v85CostDetail';d.className='analytics-dialog';
-    d.innerHTML='<div id="v85CostDetailContent"></div>';document.body.appendChild(d);
-  }
-  ensureCostDetailDialog();
+  let costDetailData=null;
 
   window.renderCosts=function(entries,payroll,prod){
-    V85.lastCostData={entries,payroll,prod};
+    costDetailData={entries,payroll,prod};
+
     const manual=entries.reduce((s,x)=>s+num(x.total_amount),0);
     const people=payroll.reduce((s,x)=>s+num(x.gross_due),0);
     const total=manual+people;
@@ -336,89 +331,127 @@
     const categories={COLABORADORES:people};
     entries.forEach(e=>categories[e.category]=(categories[e.category]||0)+num(e.total_amount));
     const max=Math.max(1,...Object.values(categories));
-    const materials=(categories.CEMENT||0)+(categories.SOIL||0)+(categories.SAND||0)+(categories.MATERIAL||0);
-    const dailyCost=total/days;
-    const monthProjection=dailyCost*30.44;
+    const costPerBrick=bricks?total/bricks:0;
+    const laborShare=total?people/total*100:0;
 
-    $('#costKpis').innerHTML=`<div class="v85-cost-kpis">
-      <button data-cost-detail="TOTAL"><small>Custo total</small><strong>${money(total)}</strong><span>Clique para detalhar</span></button>
-      <button data-cost-detail="UNIT"><small>Custo / tijolo</small><strong>${bricks?money(total/bricks):money(0)}</strong><span>${qty(bricks)} produzidos</span></button>
-      <button data-cost-detail="LABOR"><small>Mão de obra</small><strong>${money(people)}</strong><span>${total?Math.round(people/total*100):0}% do custo</span></button>
-      <button data-cost-detail="MATERIALS"><small>Materiais</small><strong>${money(materials)}</strong><span>${total?Math.round(materials/total*100):0}% do custo</span></button>
-      <button data-cost-detail="DAILY"><small>Média diária</small><strong>${money(dailyCost)}</strong><span>no período</span></button>
-      <button data-cost-detail="PROJECTION"><small>Projeção mensal</small><strong>${money(monthProjection)}</strong><span>ritmo atual</span></button>
-    </div>`;
+    $('#costKpis').innerHTML=`
+      <article class="kpi v86-cost-kpi"><small>Custo total</small><strong>${money(total)}</strong><span>${dateBR(APP.costStart)} — ${dateBR(APP.costEnd)}</span></article>
+      <article class="kpi v86-cost-kpi"><small>Custo por tijolo</small><strong>${money(costPerBrick)}</strong><span>${qty(bricks)} tijolos</span></article>
+      <article class="kpi v86-cost-kpi"><small>Mão de obra</small><strong>${money(people)}</strong><span>${Math.round(laborShare)}% do custo total</span></article>
+      <article class="kpi v86-cost-kpi"><small>Média diária de custo</small><strong>${money(total/days)}</strong><span>${days} dia(s) analisados</span></article>`;
 
-    $('#costCategoryChart').innerHTML=Object.entries(categories).sort((a,b)=>b[1]-a[1]).map(([k,v])=>
-      `<button class="v85-cost-bar" data-cost-category="${k}"><div><span>${costCategoryLabel(k)}</span><strong>${money(v)}</strong></div><i><b style="width:${v/max*100}%"></b></i><small>${total?Math.round(v/total*100):0}% do total · abrir detalhes</small></button>`
-    ).join('');
+    $('#costCategoryChart').innerHTML=`
+      <div class="v86-chart-title"><div><small>COMPOSIÇÃO</small><strong>Distribuição dos custos</strong></div><span>Clique em uma categoria</span></div>
+      <div class="v86-cost-bars">${Object.entries(categories).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`
+        <button type="button" class="v86-cost-row" data-v86-cost-category="${k}">
+          <div class="v86-cost-row-top"><span>${costCategoryLabel(k)}</span><strong>${money(v)}</strong></div>
+          <div class="v86-cost-track"><i style="width:${v/max*100}%"></i></div>
+          <small>${total?Math.round(v/total*100):0}% do custo total</small>
+        </button>`).join('')}</div>`;
 
-    const prodMax=Math.max(1,...prod.map(x=>num(x.bricks)));
-    $('#costProductionSummary').innerHTML=`<div class="production-cost-cards">
-      <div><small>Total produzido</small><strong>${qty(bricks)}</strong></div>
-      <div><small>Média diária</small><strong>${qty(bricks/days)}</strong></div>
-      <div><small>Média semanal</small><strong>${qty(bricks/days*7)}</strong></div>
-      <div><small>Média mensal</small><strong>${qty(bricks/days*30.44)}</strong></div>
-    </div>
-    <div class="v85-production-spark">${prod.slice(-20).map(x=>`<i style="height:${Math.max(5,num(x.bricks)/prodMax*100)}%" title="${dateBR(x.manufacture_date)} · ${qty(x.bricks)} tijolos"></i>`).join('')}</div>
-    <small class="v85-chart-note">Passe o cursor nas barras para ver a produção diária.</small>`;
+    const sortedProd=[...prod].sort((a,b)=>String(a.manufacture_date).localeCompare(String(b.manufacture_date)));
+    const pmax=Math.max(1,...sortedProd.map(x=>num(x.bricks)));
+    $('#costProductionSummary').innerHTML=`
+      <div class="v86-chart-title"><div><small>PRODUÇÃO</small><strong>Ritmo no período</strong></div><span>${qty(bricks)} tijolos</span></div>
+      <div class="v86-prod-stats">
+        <div><small>Média/dia</small><strong>${qty(bricks/days)}</strong></div>
+        <div><small>Média/semana</small><strong>${qty(bricks/days*7)}</strong></div>
+        <div><small>Projeção 30 dias</small><strong>${qty(bricks/days*30)}</strong></div>
+      </div>
+      <div class="v86-production-chart">${sortedProd.slice(-18).map(x=>`<div><i style="height:${Math.max(5,num(x.bricks)/pmax*100)}%"></i><small>${String(x.manufacture_date).slice(8)}</small><span>${qty(x.bricks)}</span></div>`).join('')}</div>`;
 
     $('#costEntriesList').innerHTML=entries.map(e=>`<div class="cost-entry"><div><strong>${costCategoryLabel(e.category)}${e.cost_catalog_items?.name?` · ${esc(e.cost_catalog_items.name)}`:''}</strong><small>${dateBR(e.cost_date)} · ${esc(e.description||'')}</small></div><strong>${money(e.total_amount)}</strong><button class="icon-danger" data-delete-cost="${e.id}">×</button></div>`).join('')||'<div class="empty-state">Nenhum custo lançado.</div>';
     populateCostItems();
   };
 
-  function openCostDetail(key){
-    const data=V85.lastCostData;if(!data)return;
-    let title='Detalhamento de custos', body='';
-    if(key==='LABOR'){
-      title='Mão de obra';
-      body=data.payroll.map(r=>`<div class="v85-detail-row"><span>${esc(r.full_name)}</span><small>Diárias ${money(r.base_due)} · comissão ${money(r.commission_due)} · adiant. ${money(r.advances)}</small><strong>${money(r.gross_due)}</strong></div>`).join('');
+  function showCostCategory(category){
+    if(!costDetailData)return;
+    const {entries,payroll}=costDetailData;
+    let title=costCategoryLabel(category),rows='';
+    if(category==='COLABORADORES'){
+      rows=payroll.map(r=>`<div class="v86-cost-detail-row"><div><strong>${esc(r.full_name)}</strong><small>Diárias ${money(r.base_due)} · comissão ${money(r.commission_due)}</small></div><strong>${money(r.gross_due)}</strong></div>`).join('');
     }else{
-      const category=key && !['TOTAL','UNIT','MATERIALS','DAILY','PROJECTION'].includes(key)?key:null;
-      let rows=data.entries;
-      if(category)rows=rows.filter(e=>e.category===category);
-      if(key==='MATERIALS')rows=rows.filter(e=>['CEMENT','SOIL','SAND','MATERIAL'].includes(e.category));
-      body=rows.map(e=>`<div class="v85-detail-row"><span>${dateBR(e.cost_date)} · ${costCategoryLabel(e.category)}</span><small>${esc(e.cost_catalog_items?.name||e.description||'')}</small><strong>${money(e.total_amount)}</strong></div>`).join('')||'<div class="empty-state">Sem lançamentos nesta seleção.</div>';
+      rows=entries.filter(e=>e.category===category).map(e=>`<div class="v86-cost-detail-row"><div><strong>${dateBR(e.cost_date)} · ${esc(e.cost_catalog_items?.name||e.description||title)}</strong><small>${esc(e.note||e.description||'')}</small></div><strong>${money(e.total_amount)}</strong></div>`).join('');
     }
-    $('#v85CostDetailContent').innerHTML=`<div class="dialog-head"><div><p class="eyebrow">CUSTOS</p><h2>${title}</h2><small>${dateBR(APP.costStart)} — ${dateBR(APP.costEnd)}</small></div><button class="icon" onclick="document.getElementById('v85CostDetail').close()">×</button></div><div class="v85-detail-list">${body}</div>`;
-    $('#v85CostDetail').showModal();
+    const d=$('#v85CostDetail');
+    if(!d)return;
+    $('#v85CostDetailContent').innerHTML=`<div class="dialog-head"><div><p class="eyebrow">CUSTOS</p><h2>${title}</h2><small>${dateBR(APP.costStart)} — ${dateBR(APP.costEnd)}</small></div><button class="icon" onclick="document.getElementById('v85CostDetail').close()">×</button></div><div class="v86-cost-detail-list">${rows||'<div class="empty-state">Sem registros.</div>'}</div>`;
+    d.showModal();
   }
 
   document.addEventListener('click',e=>{
-    const c=e.target.closest('[data-cost-category]');if(c){openCostDetail(c.dataset.costCategory);return}
-    const k=e.target.closest('[data-cost-detail]');if(k){openCostDetail(k.dataset.costDetail);return}
+    const b=e.target.closest('[data-v86-cost-category]');
+    if(b){e.preventDefault();showCostCategory(b.dataset.v86CostCategory);}
   });
 
-  // ---------- CSS DO PATCH ----------
+  // ============================================================
+  // 7) BOTÃO DE SENHA ADMIN MAIS DISCRETO
+  // ============================================================
+
+  if($('#adminPasswordBtn')){
+    $('#adminPasswordBtn').classList.add('v86-admin-password');
+    $('#adminPasswordBtn').textContent='Alterar senha';
+  }
+
+  // ============================================================
+  // ESTILO PONTUAL
+  // ============================================================
+
   const style=document.createElement('style');
   style.textContent=`
-    .v85-function-bank-head{display:flex;justify-content:space-between;margin:4px 0 9px}
-    .v85-function-bank-head small,.v85-function-card small{display:block;color:var(--muted);font-size:8px}
-    .v85-function-bank{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:9px;margin-bottom:14px}
-    .v85-function-card{display:flex;justify-content:space-between;gap:10px;align-items:center;border:1px solid var(--line);background:#fff;border-radius:12px;padding:11px}
-    .v85-function-card.accum{border-left:4px solid #315f84}.v85-function-card em{display:block;color:#315f84;font-style:normal;font-size:8px;margin-top:4px}
-    .v85-function-card>div:last-child{display:flex;gap:5px}.v85-function-card button{font-size:8px;padding:6px 8px}
-    .v85-team-insights{display:grid;gap:12px;margin:12px 0}.v85-insight-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}
-    .v85-insight-grid article{background:#fff;border:1px solid var(--line);border-radius:13px;padding:13px}.v85-insight-grid small,.v85-insight-grid span{display:block;color:var(--muted);font-size:8px}.v85-insight-grid strong{display:block;font-size:18px;margin:5px 0}
-    .v85-person-bar{width:100%;display:grid;grid-template-columns:120px 1fr 90px;align-items:center;gap:8px;border:0;background:transparent;padding:7px;cursor:pointer;text-align:left}
-    .v85-person-bar i,.v85-cost-bar>i{height:8px;background:#e8eeeb;border-radius:999px;overflow:hidden}.v85-person-bar i b,.v85-cost-bar>i b{display:block;height:100%;background:linear-gradient(90deg,#235a4c,#72a794);border-radius:999px}
-    .v85-manage-collaborators{margin-top:14px}.v85-cost-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;width:100%}
-    .v85-cost-kpis button{border:1px solid var(--line);background:#fff;border-radius:14px;padding:13px;text-align:left;cursor:pointer}.v85-cost-kpis button:hover,.v85-cost-bar:hover{transform:translateY(-1px);box-shadow:0 8px 22px rgba(20,63,52,.08)}
-    .v85-cost-kpis small,.v85-cost-kpis span{display:block;color:var(--muted);font-size:8px}.v85-cost-kpis strong{display:block;font-size:18px;margin:5px 0}
-    .v85-cost-bar{width:100%;display:grid;gap:6px;border:0;background:transparent;padding:7px;border-radius:10px;cursor:pointer;text-align:left}.v85-cost-bar>div{display:flex;justify-content:space-between}.v85-cost-bar small{font-size:7px;color:var(--muted)}
-    .v85-production-spark{height:110px;display:flex;align-items:flex-end;gap:4px;margin-top:14px;border-bottom:1px solid var(--line)}.v85-production-spark i{flex:1;min-width:5px;background:linear-gradient(#6ca18f,#255e50);border-radius:4px 4px 0 0}
-    .v85-chart-note{display:block;color:var(--muted);font-size:8px;margin-top:5px}.v85-detail-list{display:grid;gap:6px;padding:14px}.v85-detail-row{display:grid;grid-template-columns:1fr 1.4fr auto;gap:9px;align-items:center;border-bottom:1px solid var(--line);padding:9px}.v85-detail-row small{color:var(--muted)}
-    @media(max-width:760px){.v85-insight-grid,.v85-cost-kpis{grid-template-columns:1fr 1fr}.v85-person-bar{grid-template-columns:90px 1fr 75px}.v85-detail-row{grid-template-columns:1fr auto}.v85-detail-row small{grid-column:1/-1}}
+    #adminPasswordBtn.v86-admin-password{background:transparent!important;border:0!important;color:rgba(235,245,241,.68)!important;text-align:left!important;font-size:8px!important;padding:5px 8px!important;box-shadow:none!important;text-decoration:underline;text-underline-offset:3px}
+    #adminPasswordBtn.v86-admin-password:hover{color:#fff!important}
+
+    .v86-calendar-shift{display:block;width:100%;border:1px solid var(--line);border-radius:7px;padding:5px;background:inherit;color:inherit;text-align:left;cursor:default;font:inherit}
+    .admin-only:not(.hidden) .v86-calendar-shift,.v86-calendar-shift:hover{cursor:pointer}
+    .v86-calendar-shift small{display:block}
+    .v86-calendar-shift.bad{border-color:#d46b61;background:#fff0ee}
+    .v86-calendar-shift.extra{border-color:#3f7b69;background:#edf7f3}
+
+    .v86-functions-wrap{display:grid;gap:12px;margin-bottom:15px}
+    .v86-functions-section{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px}
+    .v86-functions-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:11px}
+    .v86-functions-head small{font-size:8px;letter-spacing:.12em;color:var(--muted);font-weight:800}
+    .v86-functions-head h3{font-size:14px;margin:3px 0}.v86-functions-head p{font-size:9px;color:var(--muted);margin:0}
+    .v86-functions-head>span{min-width:30px;height:30px;display:grid;place-items:center;border-radius:9px;background:#edf4f1;color:var(--forest);font-weight:800}
+    .v86-functions-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}
+    .v86-functions-grid article{display:flex;justify-content:space-between;align-items:center;gap:8px;border:1px solid #e0e7e4;border-radius:10px;padding:10px;background:#fbfcfb}
+    .v86-functions-grid article>div:first-child{display:grid;gap:3px}.v86-functions-grid small{font-size:8px;color:var(--muted)}
+    .v86-function-actions{display:flex;gap:4px}.v86-function-actions button{font-size:8px;padding:5px 7px}
+    .v86-accum-section{border-left:4px solid #315f84}
+
+    .v86-rotation-block{border:1px solid var(--line);border-radius:12px;padding:12px;margin:9px 0;background:#fbfcfb}
+    .v86-rotation-title{display:flex;gap:9px;align-items:center;margin-bottom:9px}.v86-rotation-title>span{width:25px;height:25px;border-radius:8px;background:var(--forest);color:#fff;display:grid;place-items:center;font-size:9px;font-weight:800}
+    .v86-rotation-title div{display:grid}.v86-rotation-title small{font-size:8px;color:var(--muted)}
+    .v86-production-pills{display:flex;flex-wrap:wrap;gap:6px}.v86-production-pills span{display:flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:999px;padding:6px 9px;background:#fff;font-size:9px}.v86-production-pills b{width:18px;height:18px;display:grid;place-items:center;background:#e8f1ee;border-radius:50%}
+    .v86-accum-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:7px}.v86-accum-list label{display:flex;align-items:flex-start;gap:7px;border:1px solid var(--line);padding:9px;border-radius:9px;background:#fff}.v86-accum-list label div{display:grid}.v86-accum-list small{font-size:8px;color:var(--muted)}
+    .v86-week-note{font-size:8px;color:var(--muted);background:#f1f5f3;border-radius:9px;padding:9px}
+    .v86-day-head{display:flex;justify-content:space-between;align-items:center}.v86-day-head span{font-size:7px;font-weight:900;letter-spacing:.1em;background:#e7f0ec;color:#245a4d;border-radius:99px;padding:4px 7px}
+    .v86-no-assignment{font-size:9px;color:var(--muted);padding:7px 0}.v86-extra-day{border-left:4px solid #3d7866}
+
+    #costKpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+    .v86-cost-kpi{border-top:3px solid #2e6a5a}
+    .v86-chart-title{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:13px}.v86-chart-title div{display:grid}.v86-chart-title small{font-size:8px;letter-spacing:.1em;color:var(--muted);font-weight:800}.v86-chart-title strong{font-size:13px;margin-top:2px}.v86-chart-title>span{font-size:8px;color:var(--muted)}
+    .v86-cost-bars{display:grid;gap:10px}.v86-cost-row{border:0;background:transparent;padding:5px 0;text-align:left;cursor:pointer}.v86-cost-row:hover{background:#f7faf8;border-radius:8px;padding-left:6px;padding-right:6px}
+    .v86-cost-row-top{display:flex;justify-content:space-between;gap:8px;font-size:10px}.v86-cost-track{height:8px;background:#e9efec;border-radius:999px;overflow:hidden;margin:5px 0}.v86-cost-track i{display:block;height:100%;background:linear-gradient(90deg,#255f50,#75a995);border-radius:999px}.v86-cost-row small{font-size:7px;color:var(--muted)}
+    .v86-prod-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.v86-prod-stats div{border:1px solid var(--line);border-radius:9px;padding:9px}.v86-prod-stats small{display:block;font-size:7px;color:var(--muted)}.v86-prod-stats strong{font-size:13px}
+    .v86-production-chart{height:135px;display:flex;gap:5px;align-items:flex-end;padding-top:18px;margin-top:10px;border-bottom:1px solid var(--line)}.v86-production-chart>div{height:100%;flex:1;min-width:8px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;position:relative}.v86-production-chart i{width:70%;background:linear-gradient(#72a692,#245e50);border-radius:5px 5px 0 0;min-height:5px}.v86-production-chart small{font-size:6px;color:var(--muted);margin-top:3px}.v86-production-chart span{display:none;position:absolute;top:0;font-size:7px;font-weight:800}.v86-production-chart>div:hover span{display:block}
+    .v86-cost-detail-list{padding:14px;display:grid;gap:5px}.v86-cost-detail-row{display:flex;justify-content:space-between;align-items:center;gap:12px;border-bottom:1px solid var(--line);padding:9px}.v86-cost-detail-row>div{display:grid}.v86-cost-detail-row small{font-size:8px;color:var(--muted)}
+
+    @media(max-width:760px){
+      #costKpis{grid-template-columns:1fr 1fr}.v86-functions-grid{grid-template-columns:1fr}.v86-accum-list{grid-template-columns:1fr}
+      .v86-prod-stats{grid-template-columns:1fr 1fr 1fr}.v86-function-actions{flex-direction:column}
+    }
   `;
   document.head.appendChild(style);
 
-  // Reaplica os componentes já carregados.
+  // Reaplica as visualizações depois que o patch V8.5 terminou.
   setTimeout(()=>{
     try{
       populateLotOptions();
-      renderSchedule();
       renderDashboardTeam();
-      if(isAdmin()){restructureCollaborators();renderCollaborators();if(V85.lastCostData)renderCosts(V85.lastCostData.entries,V85.lastCostData.payroll,V85.lastCostData.prod);}
-    }catch(err){ console.error('V8.5 patch:',err); }
-  },350);
+      renderSchedule();
+      if(isAdmin() && typeof loadCostsDashboard==='function') loadCostsDashboard();
+    }catch(err){console.error('TerraLote V8.6:',err);}
+  },550);
 })();
